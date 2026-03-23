@@ -1,0 +1,50 @@
+Variable,Continuation,Fixed-Duration
+N,114,132
+Age at landmark,,
+  Median [IQR],64.7 [57.1–77.2],68.0 [60.4–77.4]
+Gender,,
+  M,63 (55.3%),68 (51.5%)
+  F,51 (44.7%),64 (48.5%)
+Race,,
+  White,74 (64.9%),94 (71.2%)
+  Black,8 (7.0%),19 (14.4%)
+  Asian,15 (13.2%),10 (7.6%)
+  Other,6 (5.3%),7 (5.3%)
+  Unknown,11 (9.6%),2 (1.5%)
+Payer,,
+  Medicare,52 (45.6%),63 (47.7%)
+  Commercial,37 (32.5%),43 (32.6%)
+  Medicaid,9 (7.9%),11 (8.3%)
+  Other,8 (7.0%),10 (7.6%)
+  Unknown,8 (7.0%),5 (3.8%)
+Smoking History,,
+  Former,42 (36.8%),59 (44.7%)
+  Current,34 (29.8%),28 (21.2%)
+  Never,27 (23.7%),32 (24.2%)
+  Unknown,11 (9.6%),13 (9.8%)
+ECOG PS,,
+  1,58 (50.9%),59 (44.7%)
+  0,22 (19.3%),31 (23.5%)
+  2,16 (14.0%),20 (15.2%)
+  Unknown,11 (9.6%),17 (12.9%)
+  3,7 (6.1%),5 (3.8%)
+PD-L1 Status,,
+  Positive (TPS 1-49%),38 (33.3%),33 (25.0%)
+  Positive (TPS ≥50%),26 (22.8%),43 (32.6%)
+  Negative (TPS <1%),30 (26.3%),34 (25.8%)
+  Unknown,20 (17.5%),22 (16.7%)
+Histology,,
+  Adenocarcinoma,61 (53.5%),62 (47.0%)
+  Squamous Cell Carcinoma,30 (26.3%),46 (34.8%)
+  NSCLC NOS,13 (11.4%),15 (11.4%)
+  Adenosquamous,6 (5.3%),5 (3.8%)
+  Large Cell,4 (3.5%),4 (3.0%)
+De Novo vs Recurrent,,
+  De novo,79 (69.3%),102 (77.3%)
+  Recurrent,35 (30.7%),30 (22.7%)
+Brain Metastases,,
+  No,68 (59.6%),77 (58.3%)
+  Yes,46 (40.4%),55 (41.7%)
+Pembro ± Chemo,,
+  With Chemo,66 (57.9%),79 (59.8%)
+  Monotherapy,48 (42.1%),53 (40.2%)
