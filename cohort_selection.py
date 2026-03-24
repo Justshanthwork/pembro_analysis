@@ -106,10 +106,6 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     riskscores = tables.get("riskscores", pd.DataFrame())   # fallback for ECOG
     metastases = tables.get("metastases", pd.DataFrame())
 
-    # ── Diagnostic: print column names for key tables ───────────────────
-    for tname, tdf in [("demographics", demo), ("disease", disease), ("lot", lot), ("dose", dose)]:
-        print(f"  [DEBUG] {tname} columns: {list(tdf.columns[:8])}")
-
     attrition = {}
     attrition["total_patients"] = demo["mpi_id"].nunique()
 

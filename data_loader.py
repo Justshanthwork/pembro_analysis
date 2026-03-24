@@ -56,6 +56,7 @@ def load_tables(table_names=None):
                     except Exception:
                         df = pd.read_csv(fpath, low_memory=False, encoding="latin-1",
                                          on_bad_lines="skip")
+                df.columns = df.columns.str.lower().str.strip()
                 df = _parse_dates(df)
                 tables[name] = df
                 n = len(df)
