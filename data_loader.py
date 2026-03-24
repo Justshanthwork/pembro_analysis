@@ -1,5 +1,5 @@
 """
-data_loader.py — Load real CSVs or fall back to synthetic data
+data_loader.py - Load real CSVs or fall back to synthetic data
 ==============================================================
 """
 
@@ -8,7 +8,7 @@ from pathlib import Path
 from config import DATA_DIR, FILES, USE_SYNTHETIC_IF_MISSING
 
 
-def _parse_dates(df: pd.DataFrame) -> pd.DataFrame:
+def _parse_dates(df):
     """Auto-convert columns that look like dates."""
     date_hints = [
         "date", "diag_date", "staging_date", "metastatic_date",
@@ -29,25 +29,14 @@ def _parse_dates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def load_tables(
-    table_names: list[str] | None = None,
-) -> dict[str, pd.DataFrame]:
+def load_tables(table_names=None):
     """
-    Load requested tables from CSV. If CSVs missing and USE_SYNTHETIC_IF_MISSING
-    is True, generate synthetic data instead.
-
-    Parameters
-    ----------
-    table_names : list of table keys to load (None = load all in FILES)
-
-    Returns
-    -------
-    dict[str, pd.DataFrame]
+    Load requested tables from CSV.
+    Falls back to synthetic data if USE_SYNTHETIC_IF_MISSING is True.
     """
     if table_names is None:
         table_names = list(FILES.keys())
 
-    # Check if real data exists
     data_path = Path(DATA_DIR)
     real_data_available = data_path.exists() and any(
         (data_path / FILES[t]).exists() for t in table_names if t in FILES
@@ -59,19 +48,22 @@ def load_tables(
         for name in table_names:
             fpath = data_path / FILES[name]
             if fpath.exists():
-                df = pd.read_csv(fpath, low_memory=False)
+                try:
+                    df = pd.read_csv(fpath, low_memory=False, encoding="utf-8")
+                except UnicodeDecodeError:
+                    df = pd.read_csv(fpath, low_memory=False, encoding="latin-1")
                 df = _parse_dates(df)
                 tables[name] = df
-                print(f"  ✓ {name:20s}  {len(df):>7,} rows")
+                n = len(df)
+                print(f"  v {name:20s}  {n:>7,} rows")
             else:
-                print(f"  ✗ {name:20s}  FILE NOT FOUND: {fpath.name}")
+                print(f"  x {name:20s}  FILE NOT FOUND: {fpath.name}")
         return tables
 
     elif USE_SYNTHETIC_IF_MISSING:
-        print("[data_loader] Real CSVs not found — generating synthetic data")
+        print("[data_loader] Real CSVs not found - generating synthetic data")
         from synthetic_data import generate_all_synthetic_tables
         tables = generate_all_synthetic_tables()
-        # Only return requested tables
         return {k: v for k, v in tables.items() if k in table_names}
 
     else:
