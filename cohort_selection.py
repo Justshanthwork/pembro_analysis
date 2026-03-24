@@ -131,13 +131,15 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     attrition["diagnosis_window"] = len(eligible_ids)
 
     # ── Step 3: Pembrolizumab in first metastatic LOT ───────────────────
+    # lot column is a string ("1", "2", "1NA" etc.) — match exactly "1"
+    # metastatic column is 1/0 (int or string)
     lot1_met = lot[
-        (lot["lot"] == 1) &
-        (lot["metastatic"] == 1) &
+        (lot["lot"].astype(str).str.strip() == "1") &
+        (lot["metastatic"].astype(str).str.strip().isin(["1", "1.0"])) &
         (lot["mpi_id"].isin(eligible_ids))
     ].copy()
 
-    # Check that regimen contains pembrolizumab
+    # Check that regimen contains pembrolizumab (comma-separated drug names)
     pembro_lot1 = lot1_met[
         lot1_met["regimen"].str.lower().str.contains("pembrolizumab", na=False)
     ]
@@ -286,9 +288,9 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         "De novo", "Recurrent"
     )
 
-    # Pembro with chemo
+    # Pembro with chemo (regimen uses comma-separated drug names)
     cohort_data["pembro_with_chemo"] = np.where(
-        cohort_data["regimen"].str.contains(r"\+", na=False),
+        cohort_data["regimen"].str.contains(",", na=False),
         "With Chemo", "Monotherapy"
     )
 
