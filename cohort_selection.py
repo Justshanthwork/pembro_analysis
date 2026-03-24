@@ -46,10 +46,19 @@ def _apply_gap_rule(dose_df: pd.DataFrame, max_gap_days: int) -> pd.DataFrame:
     Returns DataFrame with columns: mpi_id, effective_last_infusion, all_infusion_dates
     """
     pembro_mask = (
-        dose_df["generic_name"].str.lower().isin(PEMBRO_GENERIC_NAMES) |
-        dose_df["brand_name"].str.lower().isin(PEMBRO_BRAND_NAMES)
+        dose_df["generic_name"].str.lower().str.contains("pembrolizumab", na=False) |
+        dose_df["brand_name"].str.lower().str.contains("keytruda", na=False)
     )
     pembro_doses = dose_df[pembro_mask].copy()
+
+    # Diagnostic: show what was found (or what names exist if nothing matched)
+    print(f"  [gap_rule] Pembro dose rows found: {len(pembro_doses):,}")
+    if pembro_doses.empty:
+        print("  [gap_rule] WARNING: No pembrolizumab rows matched.")
+        print("  [gap_rule] Sample generic_name values in dose table:")
+        print(dose_df["generic_name"].dropna().str.lower().value_counts().head(10).to_string())
+        return pd.DataFrame(columns=["mpi_id", "effective_last_infusion", "first_infusion", "n_infusions"])
+
     pembro_doses = pembro_doses.sort_values(["mpi_id", "drug_exposure_start_date"])
 
     results = []
