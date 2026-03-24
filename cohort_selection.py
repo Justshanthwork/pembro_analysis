@@ -55,8 +55,13 @@ def _apply_gap_rule(dose_df: pd.DataFrame, max_gap_days: int) -> pd.DataFrame:
     print(f"  [gap_rule] Pembro dose rows found: {len(pembro_doses):,}")
     if pembro_doses.empty:
         print("  [gap_rule] WARNING: No pembrolizumab rows matched.")
-        print("  [gap_rule] Sample generic_name values in dose table:")
+        print("  [gap_rule] Top generic_name values:")
         print(dose_df["generic_name"].dropna().str.lower().value_counts().head(10).to_string())
+        print("  [gap_rule] Top brand_name values:")
+        print(dose_df["brand_name"].dropna().str.lower().value_counts().head(10).to_string())
+        if "drug_class" in dose_df.columns:
+            print("  [gap_rule] Top drug_class values:")
+            print(dose_df["drug_class"].dropna().str.lower().value_counts().head(10).to_string())
         return pd.DataFrame(columns=["mpi_id", "effective_last_infusion", "first_infusion", "n_infusions"])
 
     pembro_doses = pembro_doses.sort_values(["mpi_id", "drug_exposure_start_date"])
@@ -143,6 +148,11 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     # Filter dose records to eligible patients
     dose_eligible = dose[dose["mpi_id"].isin(eligible_ids)].copy()
     infusion_summary = _apply_gap_rule(dose_eligible, MAX_INFUSION_GAP_DAYS)
+
+    if infusion_summary.empty:
+        print("\n⚠ No pembro infusion records found — check dose table drug name columns above.")
+        return pd.DataFrame(), attrition
+
     eligible_ids &= set(infusion_summary["mpi_id"].unique())
 
     # Merge LOT start date
