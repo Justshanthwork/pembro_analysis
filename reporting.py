@@ -100,7 +100,7 @@ def generate_table1(
     table1 = pd.DataFrame(all_rows)
 
     # Save
-    table1.to_csv(OUTPUT_DIR / "table1_baseline_characteristics.csv", index=False)
+    table1.to_csv(OUTPUT_DIR / "table1_baseline_characteristics.csv", index=False, encoding="utf-8-sig")
     print(f"[reporting] Table 1 saved to {OUTPUT_DIR / 'table1_baseline_characteristics.csv'}")
 
     return table1
@@ -363,14 +363,14 @@ def save_supporting_tables(km_supporting: dict, km_output: dict) -> None:
 
     # Summary table
     st = km_supporting["summary_table"]
-    st.to_csv(OUTPUT_DIR / "km_supporting_table.csv", index=False)
+    st.to_csv(OUTPUT_DIR / "km_supporting_table.csv", index=False, encoding="utf-8-sig")
     print(f"[reporting] KM supporting table saved to {OUTPUT_DIR / 'km_supporting_table.csv'}")
     print("\n--- KM Supporting Table ---")
     print(st.to_string(index=False))
 
     # Number at risk
     nar = km_supporting["number_at_risk"]
-    nar.to_csv(OUTPUT_DIR / "km_number_at_risk.csv", index=False)
+    nar.to_csv(OUTPUT_DIR / "km_number_at_risk.csv", index=False, encoding="utf-8-sig")
     print(f"\n[reporting] Number-at-risk table saved to {OUTPUT_DIR / 'km_number_at_risk.csv'}")
     print("\n--- Number at Risk ---")
     print(nar.to_string(index=False))

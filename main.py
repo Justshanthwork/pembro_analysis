@@ -49,6 +49,7 @@ from reporting import (
     plot_attrition, save_cohort_csv,
     save_supporting_tables, save_methodology,
 )
+from excel_report import create_excel_report
 
 
 def main():
@@ -122,6 +123,10 @@ def main():
 
     # Save analysis cohort
     save_cohort_csv(cohort_df)
+
+    # Excel presentation workbook
+    print("\n[4/4] Building Excel presentation workbook...")
+    create_excel_report(cohort_df, attrition, km_output, km_supporting, table1)
 
     # ── Summary ─────────────────────────────────────────────────────────
     print("\n" + "=" * 70)
