@@ -1,4 +1,4 @@
- """
+"""
 reporting.py — Generate Table 1, KM curves, Forest Plot, Attrition Diagram
 ===========================================================================
 All figures saved to OUTPUT_DIR as publication-ready PNGs and the analysis
