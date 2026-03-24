@@ -18,10 +18,10 @@ def _parse_dates(df):
         "drug_exposure_start_date", "drug_exposure_end_date",
         "cond_st_date", "cond_end_date", "date_event", "date_end",
         "disease_date", "last_curation_date", "remapped_date",
-        "change_date_end",
+        "change_date_end", "date_death",
     ]
     for col in df.columns:
-        if col.lower() in date_hints or col.lower().endswith("_date"):
+        if col.lower() in date_hints or col.lower().endswith("_date") or col.lower().startswith("date_"):
             try:
                 df[col] = pd.to_datetime(df[col], errors="coerce")
             except Exception:
