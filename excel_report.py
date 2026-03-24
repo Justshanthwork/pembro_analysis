@@ -410,15 +410,18 @@ def _build_baseline(wb, table1_df):
               border=_thin_border())
 
     # Data rows
-    for i, row_data in enumerate(table1_df.itertuples(index=False)):
+    for i, (_, row_data) in enumerate(table1_df.iterrows()):
         r = 6 + i
         _row_h(ws, r, 16)
-        var_val = row_data[0]
+        var_val = row_data["Variable"]
 
         is_header = (
             isinstance(var_val, str) and
             not var_val.startswith("  ") and
-            all(str(v) == "" or pd.isna(v) for v in row_data[1:])
+            all(
+                str(v) == "" or (isinstance(v, float) and np.isnan(v))
+                for v in row_data[group_cols]
+            )
         )
         is_total = isinstance(var_val, str) and var_val.strip() == "N"
 
@@ -441,7 +444,7 @@ def _build_baseline(wb, table1_df):
               border=_thin_border(bottom_only=True))
 
         for grp, c in col_map.items():
-            val = getattr(row_data, grp, "") if grp in table1_df.columns else ""
+            val = row_data.get(grp, "")
             val_str = "" if (val is None or (isinstance(val, float) and np.isnan(val))) else str(val)
             _cell(ws, r, c, val_str,
                   font=font_val, fill=fill,
@@ -509,102 +512,71 @@ def _build_os_analysis(wb, cohort_df, km_output, km_supporting):
            align=_align("left", "center", indent=1))
 
     st = km_supporting["summary_table"]
-    # Filter out the p-value footer row for the main table
-    data_rows = st[st["Cohort"].notna() & ~st["Cohort"].str.startswith("Log-rank", na=False)]
-    footer_rows = st[st["Cohort"].str.startswith("Log-rank", na=False) if st["Cohort"].notna().all() else [False] * len(st)]
+    # Separate data rows from the log-rank footer row
+    data_rows = st[st["Cohort"].notna() & ~st["Cohort"].astype(str).str.startswith("Log-rank")]
+    footer_rows = st[st["Cohort"].astype(str).str.startswith("Log-rank")]
 
-    cols = list(data_rows.columns)
-    header_r = sep_row + 1
-    _row_h(ws, header_r, 20)
-
-    # Dynamically set columns
-    ncols = len(cols)
-    col_widths_st = [32] + [22] * (ncols - 1)
-    for ci, w in enumerate(col_widths_st):
-        c_actual = 2 + ci
-        if ci < ncols:
-            _col(ws, c_actual, w)
+    # ── Transpose: metrics as rows, cohorts as columns ────────────────────
+    cohort_names = list(data_rows["Cohort"].values)
+    st_T = data_rows.set_index("Cohort").T.reset_index()
+    st_T.columns = ["Metric"] + cohort_names
 
     cohort_colors_st = {"Fixed-Duration": C_FD, "Continuation": C_CONT}
 
-    # Header
-    for ci, col_name in enumerate(cols):
-        c_actual = 2 + ci
-        _cell(ws, header_r, c_actual, col_name,
+    # Column widths for transposed table
+    _col(ws, 2, 36)   # Metric column
+    for ci, grp in enumerate(cohort_names):
+        _col(ws, 3 + ci, 28)
+
+    header_r = sep_row + 1
+    _row_h(ws, header_r, 20)
+    ncols_T = len(st_T.columns)  # "Metric" + cohorts
+
+    # Header row: "Metric" + cohort names
+    _cell(ws, header_r, 2, "Metric",
+          font=_font(size=9, bold=True, color=C_WHITE),
+          fill=_fill(C_NAVY),
+          align=_align("left", "center", wrap=True, indent=1),
+          border=_thin_border())
+    for ci, grp in enumerate(cohort_names):
+        color = cohort_colors_st.get(str(grp), C_NAVY)
+        _cell(ws, header_r, 3 + ci, str(grp),
               font=_font(size=9, bold=True, color=C_WHITE),
-              fill=_fill(C_NAVY),
-              align=_align("center", "center", wrap=True),
+              fill=_fill(color),
+              align=_align("center", "center"),
               border=_thin_border())
 
-    for ri, row_data in enumerate(data_rows.itertuples(index=False)):
+    # Data rows (one per metric)
+    for ri, (_, row_data) in enumerate(st_T.iterrows()):
         r = header_r + 1 + ri
         _row_h(ws, r, 18)
-        cohort_name = row_data[0]
-        cohort_color = cohort_colors_st.get(str(cohort_name), C_NAVY)
         fill = _fill(C_OFF_WHITE) if ri % 2 == 0 else _fill(C_WHITE)
-
-        for ci, val in enumerate(row_data):
-            c_actual = 2 + ci
+        metric_name = str(row_data["Metric"])
+        _cell(ws, r, 2, metric_name,
+              font=_font(size=9, bold=True, color=C_DARK_GRAY),
+              fill=fill,
+              align=_align("left", "center", indent=1),
+              border=_thin_border(bottom_only=True))
+        for ci, grp in enumerate(cohort_names):
+            val = row_data.get(grp, "")
             val_str = "" if (val is None or (isinstance(val, float) and np.isnan(val))) else str(val)
-            is_cohort_col = (ci == 0)
-            _cell(ws, r, c_actual, val_str,
-                  font=_font(size=9, bold=is_cohort_col,
-                             color=cohort_color if is_cohort_col else "000000"),
+            cohort_color = cohort_colors_st.get(str(grp), "000000")
+            _cell(ws, r, 3 + ci, val_str,
+                  font=_font(size=9, color=cohort_color),
                   fill=fill,
-                  align=_align("left" if ci == 0 else "center", "center"),
+                  align=_align("center", "center"),
                   border=_thin_border(bottom_only=True))
 
     # Log-rank p-value footer
     if not footer_rows.empty:
-        r = header_r + 1 + len(data_rows)
+        r = header_r + 1 + len(st_T)
         _row_h(ws, r, 16)
         p_text = str(footer_rows.iloc[0]["Cohort"])
-        _merge(ws, r, 2, 2 + ncols - 1, p_text,
+        _merge(ws, r, 2, 2 + ncols_T - 1, p_text,
                font=_font(size=9, bold=True, italic=True),
                fill=_fill(C_LIGHT_GRAY),
                align=_align("center", "center"),
                border=_thin_border(top_bottom=True))
-
-    nar_sep = header_r + 1 + len(data_rows) + 3
-
-    # ── Number at risk ────────────────────────────────────────────────────
-    _row_h(ws, nar_sep, 18)
-    _merge(ws, nar_sep, 2, 4, "NUMBER AT RISK",
-           font=_font(size=10, bold=True, color=C_WHITE),
-           fill=_fill(C_DARK_GRAY),
-           align=_align("left", "center", indent=1))
-
-    nar = km_supporting["number_at_risk"]
-    nar_cols = list(nar.columns)
-
-    nar_header_r = nar_sep + 1
-    _row_h(ws, nar_header_r, 18)
-
-    nar_col_widths = [32] + [12] * (len(nar_cols) - 1)
-    for ci, w in enumerate(nar_col_widths):
-        if 2 + ci <= 20:
-            _col(ws, 2 + ci, w)
-
-    for ci, col_name in enumerate(nar_cols):
-        _cell(ws, nar_header_r, 2 + ci, col_name,
-              font=_font(size=9, bold=True, color=C_WHITE),
-              fill=_fill(C_NAVY),
-              align=_align("center", "center"),
-              border=_thin_border())
-
-    for ri, row_data in enumerate(nar.itertuples(index=False)):
-        r = nar_header_r + 1 + ri
-        _row_h(ws, r, 16)
-        cohort_name = row_data[0]
-        color = cohort_colors_st.get(str(cohort_name), C_DARK_GRAY)
-
-        for ci, val in enumerate(row_data):
-            val_str = "" if (val is None or (isinstance(val, float) and np.isnan(val))) else str(val)
-            _cell(ws, r, 2 + ci, val_str,
-                  font=_font(size=9, bold=(ci == 0), color=color if ci == 0 else "000000"),
-                  fill=_fill(C_OFF_WHITE) if ri % 2 == 0 else _fill(C_WHITE),
-                  align=_align("left" if ci == 0 else "center", "center"),
-                  border=_thin_border(bottom_only=True))
 
 
 def _build_methodology(wb, cohort_df, attrition, km_output):

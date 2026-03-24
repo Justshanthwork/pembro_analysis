@@ -259,12 +259,14 @@ def build_km_supporting_table(
         )
         median_fu = kmf_rev.median_survival_time_
 
+        n_censored = n - n_events
         row = {
             "Cohort": grp,
             "N": n,
             "Events, n (%)": f"{n_events} ({n_events/n*100:.1f}%)",
+            "Censored, n (%)": f"{n_censored} ({n_censored/n*100:.1f}%)",
             "Median follow-up, months": round(median_fu, 1),
-            "Median OS, months (95% CI)": f"{median_os:.1f} ({ci_lower:.1f}–{ci_upper:.1f})" if not np.isnan(ci_lower) else f"{median_os:.1f} (NR–NR)",
+            "Median OS, months (95% CI)": f"{median_os:.1f} ({ci_lower:.1f}-{ci_upper:.1f})" if not np.isnan(ci_lower) else f"{median_os:.1f} (NR-NR)",
         }
         for t in time_points:
             if t == 0:
