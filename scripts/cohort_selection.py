@@ -89,6 +89,120 @@ def _apply_gap_rule(dose_df: pd.DataFrame, max_gap_days: int) -> pd.DataFrame:
     return pd.DataFrame(results)
 
 
+def _derive_comorbidities(
+    cohort_data: pd.DataFrame,
+    comorbidities: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Derive binary comorbidity flags from the comorbidities table.
+    Conditions must have cond_st_date <= landmark_date to count.
+    """
+    if comorbidities.empty:
+        for col in ["diabetes", "chronic_respiratory_disease",
+                     "severe_cardiac", "chronic_kidney_disease"]:
+            cohort_data[col] = "No"
+        return cohort_data
+
+    # Map ICD prefixes to covariate names
+    icd_map = {
+        "diabetes":                    ["E11", "E10", "E13", "E14"],
+        "chronic_respiratory_disease": ["J44", "J43", "J45"],
+        "severe_cardiac":              ["I21", "I22", "I50", "I63", "I64", "I65", "I73"],
+        "chronic_kidney_disease":      ["N18", "N19"],
+    }
+
+    # Get landmark dates for each patient
+    ref = cohort_data[["mpi_id", "landmark_date"]].drop_duplicates("mpi_id")
+
+    for cov_name, icd_prefixes in icd_map.items():
+        # Filter comorbidities matching these ICD codes
+        mask = comorbidities["icd_code"].str.upper().str.startswith(
+            tuple(icd_prefixes), na=False
+        ) if "icd_code" in comorbidities.columns else pd.Series(False, index=comorbidities.index)
+
+        # Also try description-based matching as fallback
+        if "cond_description" in comorbidities.columns:
+            desc_keywords = {
+                "diabetes": ["diabetes"],
+                "chronic_respiratory_disease": ["copd", "chronic obstructive", "chronic respiratory"],
+                "severe_cardiac": ["myocardial infarction", "heart failure",
+                                   "cerebrovascular", "peripheral artery"],
+                "chronic_kidney_disease": ["kidney disease", "renal failure", "kidney failure"],
+            }
+            for kw in desc_keywords.get(cov_name, []):
+                mask = mask | comorbidities["cond_description"].str.lower().str.contains(
+                    kw, na=False
+                )
+
+        matched = comorbidities[mask][["mpi_id"]].drop_duplicates()
+
+        # Merge: only conditions before landmark
+        if "cond_st_date" in comorbidities.columns:
+            matched_dated = comorbidities[mask].merge(ref, on="mpi_id", how="inner")
+            matched_dated = matched_dated[
+                matched_dated["cond_st_date"] <= matched_dated["landmark_date"]
+            ]
+            positive_ids = set(matched_dated["mpi_id"].unique())
+        else:
+            positive_ids = set(matched["mpi_id"].unique())
+
+        cohort_data[cov_name] = np.where(
+            cohort_data["mpi_id"].isin(positive_ids), "Yes", "No"
+        )
+
+    return cohort_data
+
+
+def _derive_medication_proxies(
+    cohort_data: pd.DataFrame,
+    medicalcondition: pd.DataFrame,
+) -> pd.DataFrame:
+    """
+    Derive binary medication flags from the medicalcondition table.
+    Looks for description keywords near the LOT start date (±180 days).
+    """
+    med_map = {
+        "beta_blocker":   ["beta-blocker", "beta blocker"],
+        "diuretic":       ["diuretic"],
+        "painkiller":     ["painkiller", "analgesic", "opioid"],
+        "steroid":        ["steroid", "corticosteroid", "dexamethasone", "prednisone"],
+        "rasi":           ["rasi", "renin-angiotensin", "ace inhibitor", "arb ", "angiotensin"],
+        "anticoagulant":  ["anticoagulant", "warfarin", "heparin", "enoxaparin"],
+    }
+
+    if medicalcondition.empty:
+        for col in med_map:
+            cohort_data[col] = "No"
+        return cohort_data
+
+    ref = cohort_data[["mpi_id", "start_date"]].drop_duplicates("mpi_id")
+
+    for cov_name, keywords in med_map.items():
+        if "description" not in medicalcondition.columns:
+            cohort_data[cov_name] = "No"
+            continue
+
+        mask = pd.Series(False, index=medicalcondition.index)
+        for kw in keywords:
+            mask = mask | medicalcondition["description"].str.lower().str.contains(
+                kw, na=False
+            )
+
+        matched = medicalcondition[mask].merge(ref, on="mpi_id", how="inner")
+
+        # Window: event_date within ±180 days of LOT start
+        if "event_date" in matched.columns and not matched.empty:
+            matched["days_diff"] = (matched["event_date"] - matched["start_date"]).dt.days.abs()
+            matched = matched[matched["days_diff"] <= 180]
+
+        positive_ids = set(matched["mpi_id"].unique())
+        cohort_data[cov_name] = np.where(
+            cohort_data["mpi_id"].isin(positive_ids), "Yes", "No"
+        )
+
+    return cohort_data
+
+
 def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     """
     Apply SAP inclusion/exclusion criteria.
@@ -107,6 +221,7 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     lot = tables["lot"].copy()
     dose = tables["dose"].copy()
     biomarker = tables.get("biomarker", pd.DataFrame())
+    vitals = tables.get("vitals", pd.DataFrame())
     labs = tables.get("labs", pd.DataFrame())
     riskscores = tables.get("riskscores", pd.DataFrame())   # fallback for ECOG
     metastases = tables.get("metastases", pd.DataFrame())
@@ -300,28 +415,54 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     )
 
     # ECOG performance status
-    # Primary source: LABS table (test_name = "ECOG", value = float 0–4)
-    # Fallback: RISKSCORES table (risk_name contains "ECOG", value = string)
-    ecog_ps = None
+    # Source priority: VITALS → LABS → RISKSCORES
+    # For VITALS/LABS: find the reading closest to pembro start_date within ±180 days.
+    # If none in window, use the closest reading overall (rather than leaving Unknown).
+    ECOG_WINDOW_DAYS = 180
 
-    if not labs.empty and "test_name" in labs.columns:
-        ecog = labs[labs["test_name"].str.upper().str.contains("ECOG", na=False)].copy()
-        if not ecog.empty:
-            ecog = ecog.sort_values("test_date")
-            ecog_latest = ecog.drop_duplicates("mpi_id", keep="last")[["mpi_id", "value"]]
-            # value is float64 (0.0, 1.0, 2.0...) — convert to string category
-            ecog_latest["ecog_ps"] = ecog_latest["value"].apply(
-                lambda x: str(int(x)) if pd.notna(x) else "Unknown"
-            )
-            ecog_ps = ecog_latest[["mpi_id", "ecog_ps"]]
+    ref_df = (
+        cohort_data[["mpi_id", "start_date"]]
+        .drop_duplicates("mpi_id")
+        .rename(columns={"start_date": "ref_date"})
+    )
 
-    if ecog_ps is None and not riskscores.empty:
+    def _closest_ecog(src_df, name_col, value_col):
+        """Return mpi_id → ecog_ps using closest-to-start_date logic."""
+        if src_df.empty or name_col not in src_df.columns:
+            return None
+        if "test_date" not in src_df.columns:
+            return None
+        ecog = src_df[src_df[name_col].str.upper().str.contains("ECOG", na=False)].copy()
+        if ecog.empty:
+            return None
+        ecog = ecog.merge(ref_df, on="mpi_id", how="inner")
+        ecog["days_diff"] = (ecog["test_date"] - ecog["ref_date"]).dt.days.abs()
+        in_window = ecog[ecog["days_diff"] <= ECOG_WINDOW_DAYS]
+        pool = in_window if not in_window.empty else ecog
+        best = pool.sort_values("days_diff").drop_duplicates("mpi_id", keep="first")
+        best = best[[c for c in ["mpi_id", value_col] if c in best.columns]].copy()
+        best["ecog_ps"] = best[value_col].apply(
+            lambda x: str(int(float(x))) if pd.notna(x) and str(x).strip() not in ("", "nan") else "Unknown"
+        )
+        return best[["mpi_id", "ecog_ps"]]
+
+    # Detect value column for VITALS (may be "value", "value_numeric", or "result_value")
+    vitals_val_col = next(
+        (c for c in ["value", "value_numeric", "result_value"] if c in vitals.columns),
+        "value"
+    )
+
+    ecog_ps = _closest_ecog(vitals, "test_name", vitals_val_col)
+    if ecog_ps is None or (isinstance(ecog_ps, pd.DataFrame) and ecog_ps.empty):
+        ecog_ps = _closest_ecog(labs, "test_name", "value")
+
+    # Fallback: RISKSCORES (no test_date windowing — just take latest)
+    if ecog_ps is None and not riskscores.empty and "risk_name" in riskscores.columns:
         ecog = riskscores[riskscores["risk_name"].str.upper().str.contains("ECOG", na=False)].copy()
-        if not ecog.empty:
-            ecog = ecog.sort_values("test_date")
-            ecog_latest = ecog.drop_duplicates("mpi_id", keep="last")[["mpi_id", "value"]]
-            ecog_latest.rename(columns={"value": "ecog_ps"}, inplace=True)
-            ecog_ps = ecog_latest
+        if not ecog.empty and "test_date" in ecog.columns:
+            ecog = ecog.sort_values("test_date").drop_duplicates("mpi_id", keep="last")
+            ecog["ecog_ps"] = ecog["value"].astype(str)
+            ecog_ps = ecog[["mpi_id", "ecog_ps"]]
 
     if ecog_ps is not None:
         cohort_data = cohort_data.merge(ecog_ps, on="mpi_id", how="left")
@@ -355,6 +496,13 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     else:
         cohort_data["brain_mets"] = "Unknown"
 
+    # ── Step 10b: Merge comorbidity covariates ────────────────────────────
+    comorbidities = tables.get("comorbidities", pd.DataFrame())
+    medicalcondition = tables.get("medicalcondition", pd.DataFrame())
+
+    cohort_data = _derive_comorbidities(cohort_data, comorbidities)
+    cohort_data = _derive_medication_proxies(cohort_data, medicalcondition)
+
     # Clean up
     final_cols = [
         "mpi_id", "cohort", "landmark_date", "start_date",
@@ -363,6 +511,12 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         "age_at_index", "gender", "race", "payer", "smoking_history",
         "ecog_ps", "pdl1_status", "histology", "de_novo_vs_recurrent",
         "brain_mets", "pembro_with_chemo", "regimen",
+        # Comorbidity covariates
+        "diabetes", "chronic_respiratory_disease", "severe_cardiac",
+        "chronic_kidney_disease",
+        # Medication proxy covariates
+        "beta_blocker", "diuretic", "painkiller", "steroid",
+        "rasi", "anticoagulant",
     ]
     # Only keep columns that exist
     final_cols = [c for c in final_cols if c in cohort_data.columns]

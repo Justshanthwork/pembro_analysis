@@ -469,3 +469,394 @@ def save_cohort_csv(cohort_df: pd.DataFrame, filename: str = "analysis_cohort.cs
     cohort_df.to_csv(outpath, index=False)
     print(f"[reporting] Analysis cohort saved to {outpath}")
     return outpath
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# COX MODEL COMPARISON FOREST PLOT
+# ─────────────────────────────────────────────────────────────────────────────
+
+def plot_model_comparison_forest(
+    cox_results: dict,
+    lasso_result: dict = None,
+    output_filename: str = "forest_model_comparison.png",
+    title: str = "Treatment HR Across Cox Models\n(Continuation vs Fixed-Duration)",
+) -> Path:
+    """Forest plot comparing treatment HR across different model specifications."""
+    ensure_output_dir()
+
+    entries = []
+    for model_name, result in cox_results.items():
+        if "error" in result:
+            continue
+        hr = result["treatment_hr"]
+        entries.append({
+            "label": model_name.replace("_", " ").title(),
+            "hr": hr["HR"],
+            "lower": hr["HR_lower"],
+            "upper": hr["HR_upper"],
+            "p": hr["p_value"],
+            "n": result["n_patients"],
+        })
+
+    if lasso_result and "error" not in lasso_result:
+        hr = lasso_result["treatment_hr"]
+        entries.append({
+            "label": "LASSO-Selected",
+            "hr": hr["HR"],
+            "lower": hr["HR_lower"],
+            "upper": hr["HR_upper"],
+            "p": hr["p_value"],
+            "n": lasso_result["n_patients"],
+        })
+
+    if not entries:
+        print("[reporting] No valid models to plot.")
+        return None
+
+    fig, ax = plt.subplots(figsize=(10, max(3, len(entries) * 0.8 + 2)))
+
+    y_pos = np.arange(len(entries))
+    colors = ["#2166AC", "#4393C3", "#92C5DE", "#D1E5F0", "#B2182B"]
+
+    for i, entry in enumerate(entries):
+        color = colors[i % len(colors)]
+        ax.plot([entry["lower"], entry["upper"]], [y_pos[i]] * 2,
+                color=color, linewidth=2.5)
+        ax.plot(entry["hr"], y_pos[i], "D", color=color, markersize=10, zorder=5)
+
+    ax.axvline(x=1.0, color="black", linestyle="--", linewidth=1, alpha=0.5)
+    ax.set_yticks(y_pos)
+    ax.set_yticklabels([e["label"] for e in entries], fontsize=11)
+    ax.set_xlabel("Hazard Ratio (95% CI)", fontsize=12, fontweight="bold")
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ticker.FormatStrFormatter("%.2f"))
+    ax.grid(True, axis="x", alpha=0.3, linestyle="--")
+
+    # Annotate with HR values
+    for i, entry in enumerate(entries):
+        text = f"HR {entry['hr']:.3f} ({entry['lower']:.3f}–{entry['upper']:.3f}), p={entry['p']:.4f}, N={entry['n']}"
+        ax.text(ax.get_xlim()[1] * 1.05, y_pos[i], text,
+                fontsize=8, va="center", fontfamily="monospace")
+
+    plt.tight_layout()
+    outpath = OUTPUT_DIR / output_filename
+    fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"[reporting] Model comparison forest plot saved to {outpath}")
+    return outpath
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# FULL COX FOREST PLOT (all covariates from one model)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def plot_full_cox_forest(
+    cox_result: dict,
+    model_name: str = "Fully Adjusted",
+    output_filename: str = "forest_plot_full_cox.png",
+) -> Path:
+    """Forest plot for all covariates in a single Cox model."""
+    ensure_output_dir()
+
+    if "error" in cox_result or "summary" not in cox_result:
+        return None
+
+    summary = cox_result["summary"].copy()
+    summary = summary.sort_values("exp(coef)")
+
+    labels = summary.index.tolist()
+    hrs = summary["exp(coef)"].values
+    lower = summary["exp(coef) lower 95%"].values
+    upper = summary["exp(coef) upper 95%"].values
+    pvals = summary["p"].values
+
+    fig, ax = plt.subplots(figsize=(12, max(4, len(labels) * 0.45 + 2)))
+
+    y_pos = np.arange(len(labels))
+
+    for i in range(len(labels)):
+        is_treatment = "treatment" in labels[i].lower()
+        color = "#B2182B" if is_treatment else ("#2166AC" if pvals[i] < 0.05 else "#999999")
+        lw = 3 if is_treatment else 2
+        ms = 10 if is_treatment else 7
+        ax.plot([lower[i], upper[i]], [y_pos[i]] * 2, color=color, linewidth=lw)
+        ax.plot(hrs[i], y_pos[i], "D" if is_treatment else "o",
+                color=color, markersize=ms, zorder=5)
+
+    ax.axvline(x=1.0, color="black", linestyle="--", linewidth=1, alpha=0.5)
+    ax.set_yticks(y_pos)
+
+    # Clean up labels
+    clean_labels = []
+    for label in labels:
+        label = label.replace("treatment_continuation", "Continuation vs Fixed-Duration")
+        label = label.replace("_", " ").replace("  ", " ")
+        clean_labels.append(label)
+
+    ax.set_yticklabels(clean_labels, fontsize=9)
+    ax.set_xlabel("Hazard Ratio (95% CI)", fontsize=12, fontweight="bold")
+    ax.set_title(f"{model_name} Cox Model — Hazard Ratios\nwith 95% Confidence Intervals",
+                 fontsize=13, fontweight="bold")
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ticker.FormatStrFormatter("%.2f"))
+    ax.grid(True, axis="x", alpha=0.3, linestyle="--")
+
+    for i in range(len(labels)):
+        text = f"{hrs[i]:.2f} ({lower[i]:.2f}–{upper[i]:.2f}) p={pvals[i]:.3f}"
+        ax.text(ax.get_xlim()[1] * 1.02, y_pos[i], text,
+                fontsize=7, va="center", fontfamily="monospace")
+
+    plt.tight_layout()
+    outpath = OUTPUT_DIR / output_filename
+    fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"[reporting] Full Cox forest plot saved to {outpath}")
+    return outpath
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUBGROUP FOREST PLOT
+# ─────────────────────────────────────────────────────────────────────────────
+
+def plot_subgroup_forest(
+    subgroup_df,
+    output_filename: str = "forest_subgroup_analysis.png",
+    title: str = "Subgroup Analysis — Treatment HR\n(Continuation vs Fixed-Duration)",
+) -> Path:
+    """Forest plot for subgroup analysis results."""
+    ensure_output_dir()
+
+    if subgroup_df.empty:
+        return None
+
+    fig, ax = plt.subplots(figsize=(12, max(4, len(subgroup_df) * 0.6 + 2)))
+
+    y_pos = np.arange(len(subgroup_df))
+
+    for i, (_, row) in enumerate(subgroup_df.iterrows()):
+        is_overall = row.get("Variable") == "Overall"
+        color = "#B2182B" if is_overall else "#2166AC"
+        lw = 3 if is_overall else 2
+        ms = 10 if is_overall else 7
+        marker = "D" if is_overall else "o"
+
+        ax.plot([row["HR_lower"], row["HR_upper"]], [y_pos[i]] * 2,
+                color=color, linewidth=lw)
+        ax.plot(row["HR"], y_pos[i], marker,
+                color=color, markersize=ms, zorder=5)
+
+    ax.axvline(x=1.0, color="black", linestyle="--", linewidth=1, alpha=0.5)
+    ax.set_yticks(y_pos)
+
+    labels = []
+    for _, row in subgroup_df.iterrows():
+        if row["Variable"] == "Overall":
+            labels.append("Overall")
+        else:
+            labels.append(f"  {row['Variable']}: {row['Level']}")
+    ax.set_yticklabels(labels, fontsize=9)
+
+    ax.set_xlabel("Hazard Ratio (95% CI)", fontsize=12, fontweight="bold")
+    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(ticker.FormatStrFormatter("%.2f"))
+    ax.grid(True, axis="x", alpha=0.3, linestyle="--")
+
+    for i, (_, row) in enumerate(subgroup_df.iterrows()):
+        int_p = f", int_p={row['interaction_p']:.3f}" if pd.notna(row.get("interaction_p")) else ""
+        text = f"HR {row['HR']:.2f} ({row['HR_lower']:.2f}–{row['HR_upper']:.2f}) N={row['N']}{int_p}"
+        ax.text(ax.get_xlim()[1] * 1.02, y_pos[i], text,
+                fontsize=7, va="center", fontfamily="monospace")
+
+    plt.tight_layout()
+    outpath = OUTPUT_DIR / output_filename
+    fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"[reporting] Subgroup forest plot saved to {outpath}")
+    return outpath
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SCHOENFELD RESIDUAL PLOTS
+# ─────────────────────────────────────────────────────────────────────────────
+
+def plot_schoenfeld_residuals(
+    ph_result: dict,
+    output_filename: str = "schoenfeld_residuals.png",
+) -> Path:
+    """
+    Plot Schoenfeld residuals for key covariates.
+    Uses the fitted CoxPH model from test_proportional_hazards.
+    """
+    ensure_output_dir()
+
+    cph = ph_result.get("cph")
+    model_df = ph_result.get("model_df")
+    if cph is None or model_df is None:
+        return None
+
+    # Get Schoenfeld residuals
+    try:
+        schoenfeld = cph.compute_residuals(model_df, kind="schoenfeld")
+    except Exception as e:
+        print(f"[reporting] Could not compute Schoenfeld residuals: {e}")
+        return None
+
+    # Select up to 6 covariates to plot
+    cols_to_plot = schoenfeld.columns[:min(6, len(schoenfeld.columns))]
+    n_plots = len(cols_to_plot)
+
+    if n_plots == 0:
+        return None
+
+    ncols = min(3, n_plots)
+    nrows = (n_plots + ncols - 1) // ncols
+
+    fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4 * nrows))
+    if n_plots == 1:
+        axes = np.array([axes])
+    axes = axes.flatten()
+
+    for idx, col in enumerate(cols_to_plot):
+        ax = axes[idx]
+        residuals = schoenfeld[col].dropna()
+        times = residuals.index
+
+        ax.scatter(times, residuals.values, alpha=0.3, s=15, color="#2166AC")
+
+        # Add LOWESS smoothing
+        try:
+            from statsmodels.nonparametric.smoothers_lowess import lowess
+            smooth = lowess(residuals.values, times.values, frac=0.6)
+            ax.plot(smooth[:, 0], smooth[:, 1], color="#B2182B",
+                    linewidth=2, label="LOWESS")
+        except ImportError:
+            # Simple rolling mean fallback
+            sorted_idx = np.argsort(times)
+            window = max(10, len(times) // 10)
+            rolling = pd.Series(residuals.values[sorted_idx]).rolling(
+                window, center=True).mean()
+            ax.plot(times.values[sorted_idx], rolling.values,
+                    color="#B2182B", linewidth=2, label="Rolling mean")
+
+        ax.axhline(0, color="gray", linestyle="--", alpha=0.5)
+        clean_name = col.replace("treatment_continuation",
+                                 "Continuation vs FD").replace("_", " ")
+        ax.set_title(clean_name, fontsize=10, fontweight="bold")
+        ax.set_xlabel("Time (months)", fontsize=9)
+        ax.set_ylabel("Schoenfeld Residual", fontsize=9)
+        ax.legend(fontsize=8)
+
+    # Hide unused subplots
+    for idx in range(n_plots, len(axes)):
+        axes[idx].set_visible(False)
+
+    fig.suptitle("Schoenfeld Residuals — PH Assumption Check",
+                 fontsize=14, fontweight="bold", y=1.02)
+    plt.tight_layout()
+
+    outpath = OUTPUT_DIR / output_filename
+    fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"[reporting] Schoenfeld residual plots saved to {outpath}")
+    return outpath
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LANDMARK SENSITIVITY PLOT
+# ─────────────────────────────────────────────────────────────────────────────
+
+def plot_landmark_sensitivity(
+    landmark_df,
+    output_filename: str = "landmark_sensitivity.png",
+) -> Path:
+    """Plot treatment HR across different landmark times."""
+    ensure_output_dir()
+
+    if landmark_df.empty:
+        return None
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    x = landmark_df["Landmark (months)"].values
+    hr = landmark_df["HR"].values
+    lower = landmark_df["HR_lower"].values
+    upper = landmark_df["HR_upper"].values
+
+    ax.fill_between(x, lower, upper, alpha=0.2, color="#2166AC")
+    ax.plot(x, hr, "D-", color="#2166AC", linewidth=2, markersize=10)
+    ax.axhline(1.0, color="black", linestyle="--", linewidth=1, alpha=0.5)
+
+    for i in range(len(x)):
+        ax.annotate(
+            f"HR={hr[i]:.3f}\n({lower[i]:.3f}-{upper[i]:.3f})",
+            xy=(x[i], hr[i]),
+            xytext=(0, 20),
+            textcoords="offset points",
+            fontsize=8,
+            ha="center",
+            fontfamily="monospace",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                      edgecolor="gray", alpha=0.8),
+        )
+
+    ax.set_xlabel("Landmark Time (months from pembrolizumab start)",
+                  fontsize=12, fontweight="bold")
+    ax.set_ylabel("Hazard Ratio (Continuation vs Fixed-Duration)",
+                  fontsize=12, fontweight="bold")
+    ax.set_title("Landmark Sensitivity Analysis\nTreatment HR at Different Landmark Times",
+                 fontsize=13, fontweight="bold")
+    ax.set_xticks(x)
+    ax.grid(True, alpha=0.3, linestyle="--")
+
+    plt.tight_layout()
+    outpath = OUTPUT_DIR / output_filename
+    fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    print(f"[reporting] Landmark sensitivity plot saved to {outpath}")
+    return outpath
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAVE COX TABLES
+# ─────────────────────────────────────────────────────────────────────────────
+
+def save_cox_tables(
+    comparison_df, subgroup_df, ph_result, landmark_df,
+    cox_results, lasso_result=None,
+) -> None:
+    """Save all Cox-related tables as CSVs."""
+    ensure_output_dir()
+
+    comparison_df.to_csv(OUTPUT_DIR / "cox_model_comparison.csv",
+                         index=False, encoding="utf-8-sig")
+    print(f"[reporting] Model comparison saved to {OUTPUT_DIR / 'cox_model_comparison.csv'}")
+
+    if not subgroup_df.empty:
+        subgroup_df.to_csv(OUTPUT_DIR / "cox_subgroup_analysis.csv",
+                           index=False, encoding="utf-8-sig")
+        print(f"[reporting] Subgroup analysis saved to {OUTPUT_DIR / 'cox_subgroup_analysis.csv'}")
+
+    if ph_result and not ph_result.get("test_results", pd.DataFrame()).empty:
+        ph_result["test_results"].to_csv(
+            OUTPUT_DIR / "cox_ph_test_schoenfeld.csv", encoding="utf-8-sig")
+        print(f"[reporting] PH test saved to {OUTPUT_DIR / 'cox_ph_test_schoenfeld.csv'}")
+
+    if not landmark_df.empty:
+        landmark_df.to_csv(OUTPUT_DIR / "cox_landmark_sensitivity.csv",
+                           index=False, encoding="utf-8-sig")
+        print(f"[reporting] Landmark sensitivity saved to {OUTPUT_DIR / 'cox_landmark_sensitivity.csv'}")
+
+    # Full model summary for the "full" model
+    for model_name in ["full", "clinical"]:
+        if model_name in cox_results and "summary" in cox_results[model_name]:
+            cox_results[model_name]["summary"].to_csv(
+                OUTPUT_DIR / f"cox_{model_name}_model_summary.csv",
+                encoding="utf-8-sig")
+            print(f"[reporting] {model_name} model summary saved")
+
+    if lasso_result and "summary" in lasso_result:
+        lasso_result["summary"].to_csv(
+            OUTPUT_DIR / "cox_lasso_model_summary.csv", encoding="utf-8-sig")
+        print(f"[reporting] LASSO model summary saved")

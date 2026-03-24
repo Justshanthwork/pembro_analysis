@@ -412,6 +412,96 @@ def generate_all_synthetic_tables(
         ],
     })
 
+    # ── COMORBIDITIES — conditions at or before treatment ────────────────
+    # Matches real IC PrecisionQ schema: cond_description, icd_code, cond_st_date
+    comorbidity_conditions = [
+        ("Diabetes mellitus", "E11", 0.13),
+        ("Essential hypertension", "I10", 0.35),
+        ("Chronic obstructive pulmonary disease", "J44", 0.25),
+        ("Severe myocardial infarction", "I21", 0.01),
+        ("Severe heart failure", "I50", 0.01),
+        ("Severe cerebrovascular disease", "I63", 0.012),
+        ("Severe peripheral artery disease", "I73", 0.007),
+        ("Chronic kidney disease", "N18", 0.04),
+        ("Severe liver disease", "K74", 0.003),
+    ]
+    comorb_rows = []
+    for i in range(n):
+        for desc, icd, prev in comorbidity_conditions:
+            if rng.random() < prev:
+                # Condition date: 0-24 months before diagnosis
+                offset_days = int(rng.integers(0, 730))
+                cond_date = diag_dates[i] - timedelta(days=offset_days)
+                comorb_rows.append({
+                    "mpi_id": mpi_ids[i],
+                    "division_mask": 1,
+                    "combined_div_mpi_id": f"1_{mpi_ids[i]}",
+                    "cond_description": desc,
+                    "icd_code": icd,
+                    "cond_st_date": cond_date,
+                    "cond_end_date": pd.NaT,
+                    "rsi": None,
+                })
+    comorbidities = pd.DataFrame(comorb_rows) if comorb_rows else pd.DataFrame(
+        columns=["mpi_id", "division_mask", "combined_div_mpi_id",
+                 "cond_description", "icd_code", "cond_st_date", "cond_end_date", "rsi"]
+    )
+
+    # ── MEDICAL CONDITIONS — medication proxies (like ATHENA paper) ──────
+    # These capture prescriptions: beta-blockers, diuretics, painkillers, etc.
+    medication_conditions = [
+        ("Beta-blocker prescription", 0.21),
+        ("Diuretic prescription", 0.11),
+        ("Painkiller prescription", 0.75),
+        ("NSAID prescription", 0.33),
+        ("Lipid-lowering drug prescription", 0.35),
+        ("Antidepressant prescription", 0.15),
+        ("Steroid prescription", 0.56),
+        ("PPI prescription", 0.45),
+        ("RASI prescription", 0.35),
+        ("Antiplatelet prescription", 0.30),
+        ("Anticoagulant prescription", 0.14),
+    ]
+    medcond_rows = []
+    for i in range(n):
+        for desc, prev in medication_conditions:
+            if rng.random() < prev:
+                # Event date: at or near LOT start (±60 days)
+                offset_days = int(rng.integers(-60, 61))
+                event_dt = lot_start[i] + timedelta(days=offset_days)
+                medcond_rows.append({
+                    "mpi_id": mpi_ids[i],
+                    "division_mask": 1,
+                    "combined_div_mpi_id": f"1_{mpi_ids[i]}",
+                    "description": desc,
+                    "event_date": event_dt,
+                    "grade": None,
+                    "type": "Prescription",
+                    "rsi": None,
+                    "source_location": None,
+                    "lab_name": None,
+                    "source_value": None,
+                    "source_unit": None,
+                })
+    medicalcondition = pd.DataFrame(medcond_rows) if medcond_rows else pd.DataFrame(
+        columns=["mpi_id", "division_mask", "combined_div_mpi_id",
+                 "description", "event_date", "grade", "type", "rsi",
+                 "source_location", "lab_name", "source_value", "source_unit"]
+    )
+
+    # VITALS — add a synthetic vitals table with ECOG (mirrors labs but as primary source)
+    vitals = pd.DataFrame({
+        "mpi_id": mpi_ids,
+        "division_mask": 1,
+        "combined_div_mpi_id": [f"1_{mid}" for mid in mpi_ids],
+        "test_name": "ECOG",
+        "test_date": lot_start + pd.to_timedelta(rng.integers(-30, 30, size=n), unit="D"),
+        "value": ecog_numeric,
+        "unit_value": None,
+        "source_location": None,
+        "rsi": None,
+    })
+
     # ── Assemble all tables ─────────────────────────────────────────────
     tables = {
         "demographics": demographics,
@@ -420,8 +510,11 @@ def generate_all_synthetic_tables(
         "dose": dose_df,
         "biomarker": biomarker,
         "labs": labs,
+        "vitals": vitals,
         "riskscores": riskscores,
         "metastases": metastases,
+        "comorbidities": comorbidities,
+        "medicalcondition": medicalcondition,
         "regimen": regimen_ref,
     }
 

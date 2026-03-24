@@ -95,19 +95,68 @@ CHEMO_PROXIMITY_EXCLUSION_DAYS = 60  # 2 months
 # ─────────────────────────────────────────────────────────────────────────────
 # 4. COVARIATES for Cox model (evaluated at index date)
 # ─────────────────────────────────────────────────────────────────────────────
-COVARIATES = [
+
+# Core covariates (from demographics, disease, biomarker, metastases, LOT)
+COVARIATES_CORE = [
     "age_at_index",
     "gender",
     "race",
     "payer",
     "smoking_history",
-    "ecog_ps",            # from riskscores table
+    "ecog_ps",            # from vitals/labs/riskscores table
     "pdl1_status",        # from biomarker table
     "histology",          # from disease table
     "de_novo_vs_recurrent",
     "brain_mets",         # from metastases table
     "pembro_with_chemo",  # from LOT regimen
 ]
+
+# Extended covariates (from comorbidities + medicalcondition tables)
+# Inspired by ATHENA paper (Rousseau et al. Lancet Reg Health Eur 2024)
+COVARIATES_COMORBIDITIES = [
+    "diabetes",                     # from comorbidities (ICD E11)
+    "chronic_respiratory_disease",  # from comorbidities (ICD J44)
+    "severe_cardiac",               # MI, heart failure, CVD combined
+    "chronic_kidney_disease",       # from comorbidities (ICD N18)
+]
+
+COVARIATES_MEDICATIONS = [
+    "beta_blocker",        # from medicalcondition
+    "diuretic",            # from medicalcondition
+    "painkiller",          # from medicalcondition
+    "steroid",             # from medicalcondition
+    "rasi",                # renin-angiotensin system inhibitor
+    "anticoagulant",       # from medicalcondition
+]
+
+# Full covariate set = core + comorbidities + medications
+COVARIATES = COVARIATES_CORE + COVARIATES_COMORBIDITIES + COVARIATES_MEDICATIONS
+
+# Covariate sets for multiple Cox models
+COX_MODEL_SPECS = {
+    "unadjusted":  [],
+    "minimal":     ["age_at_index", "gender"],
+    "clinical":    COVARIATES_CORE,
+    "full":        COVARIATES,
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4b. SUBGROUP ANALYSES
+# ─────────────────────────────────────────────────────────────────────────────
+SUBGROUP_VARIABLES = [
+    ("gender", ["M", "F"]),
+    ("histology", ["Adenocarcinoma", "Squamous Cell Carcinoma"]),
+    ("pdl1_status", ["Positive (TPS ≥50%)", "Positive (TPS 1-49%)", "Negative (TPS <1%)"]),
+    ("pembro_with_chemo", ["With Chemo", "Monotherapy"]),
+    ("ecog_ps", ["0", "1", "2"]),
+    ("brain_mets", ["Yes", "No"]),
+    ("de_novo_vs_recurrent", ["De novo", "Recurrent"]),
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 4c. LANDMARK SENSITIVITY ANALYSIS
+# ─────────────────────────────────────────────────────────────────────────────
+LANDMARK_SENSITIVITY_MONTHS = [27, 29, 32]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 5. CHEMOTHERAPY AGENTS (to identify chemo component in regimens)
@@ -121,6 +170,9 @@ CHEMO_AGENTS = [
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. SYNTHETIC DATA SETTINGS (for testing when real data not available)
 # ─────────────────────────────────────────────────────────────────────────────
-USE_SYNTHETIC_IF_MISSING = False  # use real CSVs only
+USE_SYNTHETIC_IF_MISSING = False  # set True to test with synthetic data; False for real CSVs only
+USE_LASSO_SELECTION = True      # use LASSO to select covariates for one model
+LASSO_ALPHA_RANGE = [0.01, 0.05, 0.1, 0.5, 1.0]
+
 SYNTHETIC_N_PATIENTS = 500
 SYNTHETIC_SEED = 42

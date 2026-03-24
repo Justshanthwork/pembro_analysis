@@ -707,7 +707,235 @@ def _build_methodology(wb, cohort_df, attrition, km_output):
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_df):
+def _build_cox_comparison(wb, comparison_df):
+    """Sheet: Cox Model Comparison — treatment HR across model specifications."""
+    ws = wb.create_sheet("Cox Model Comparison")
+    ws.sheet_properties.tabColor = "B2182B"
+    _no_gridlines(ws)
+
+    _col(ws, 1, 3)
+    _col(ws, 2, 22)
+    for c in range(3, 10):
+        _col(ws, c, 18)
+    _col(ws, 10, 3)
+
+    # Title
+    _row_h(ws, 1, 8)
+    _row_h(ws, 2, 30)
+    _merge(ws, 2, 2, 9, "Cox Model Comparison — Treatment HR (Continuation vs Fixed-Duration)",
+           font=_font(size=14, bold=True, color=C_WHITE),
+           fill=_fill(C_NAVY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 3, 16)
+    _merge(ws, 3, 2, 9,
+           "Sensitivity to confounder adjustment. HR <1 favours Continuation; HR >1 favours Fixed-Duration.",
+           font=_font(size=10, italic=True, color=C_DARK_GRAY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 4, 10)
+
+    if comparison_df is None or comparison_df.empty:
+        _cell(ws, 5, 2, "No Cox models available.",
+              font=_font(size=10, italic=True, color=C_DARK_GRAY))
+        return
+
+    # Column headers
+    cols = list(comparison_df.columns)
+    _row_h(ws, 5, 22)
+    for ci, col_name in enumerate(cols):
+        _cell(ws, 5, 2 + ci, col_name,
+              font=_font(size=10, bold=True, color=C_WHITE),
+              fill=_fill(C_NAVY),
+              align=_align("center", "center"),
+              border=_thin_border())
+
+    # Data rows
+    for ri, (_, row_data) in enumerate(comparison_df.iterrows()):
+        r = 6 + ri
+        _row_h(ws, r, 18)
+        fill = _fill(C_OFF_WHITE) if ri % 2 == 0 else _fill(C_WHITE)
+        for ci, col_name in enumerate(cols):
+            val = row_data[col_name]
+            val_str = str(val) if val is not None else ""
+            is_model = ci == 0
+            _cell(ws, r, 2 + ci, val_str,
+                  font=_font(size=10, bold=is_model),
+                  fill=fill,
+                  align=_align("left" if is_model else "center", "center"),
+                  border=_thin_border(bottom_only=True))
+
+    # Embed forest plot image
+    img_path = Path(OUTPUT_DIR) / "forest_model_comparison.png"
+    img_row = 6 + len(comparison_df) + 2
+    if img_path.exists():
+        try:
+            img = XLImage(str(img_path))
+            img.width = 640
+            img.height = 340
+            ws.add_image(img, f"B{img_row}")
+        except Exception:
+            pass
+
+    ws.freeze_panes = "B6"
+
+
+def _build_subgroup_sheet(wb, subgroup_df):
+    """Sheet: Subgroup Analysis."""
+    ws = wb.create_sheet("Subgroup Analysis")
+    ws.sheet_properties.tabColor = "4393C3"
+    _no_gridlines(ws)
+
+    _col(ws, 1, 3)
+    _col(ws, 2, 26)
+    _col(ws, 3, 26)
+    for c in range(4, 11):
+        _col(ws, c, 16)
+    _col(ws, 11, 3)
+
+    _row_h(ws, 1, 8)
+    _row_h(ws, 2, 30)
+    _merge(ws, 2, 2, 10, "Subgroup Analysis — Treatment HR by Patient Characteristics",
+           font=_font(size=14, bold=True, color=C_WHITE),
+           fill=_fill(C_NAVY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 3, 16)
+    _merge(ws, 3, 2, 10,
+           "Unadjusted Cox within each subgroup. Interaction p-value tests heterogeneity.",
+           font=_font(size=10, italic=True, color=C_DARK_GRAY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 4, 10)
+
+    if subgroup_df is None or subgroup_df.empty:
+        _cell(ws, 5, 2, "No subgroup results available.",
+              font=_font(size=10, italic=True, color=C_DARK_GRAY))
+        return
+
+    display_cols = ["Variable", "Level", "N", "Events", "HR", "HR_lower",
+                    "HR_upper", "p_value", "interaction_p"]
+    cols = [c for c in display_cols if c in subgroup_df.columns]
+
+    _row_h(ws, 5, 22)
+    headers_display = {
+        "Variable": "Variable", "Level": "Level", "N": "N",
+        "Events": "Events", "HR": "HR", "HR_lower": "95% CI Lower",
+        "HR_upper": "95% CI Upper", "p_value": "p-value",
+        "interaction_p": "Interaction p",
+    }
+    for ci, col_name in enumerate(cols):
+        _cell(ws, 5, 2 + ci, headers_display.get(col_name, col_name),
+              font=_font(size=10, bold=True, color=C_WHITE),
+              fill=_fill(C_NAVY),
+              align=_align("center", "center"),
+              border=_thin_border())
+
+    for ri, (_, row_data) in enumerate(subgroup_df.iterrows()):
+        r = 6 + ri
+        _row_h(ws, r, 18)
+        is_overall = row_data.get("Variable") == "Overall"
+        fill = _fill(C_LIGHT_BLUE) if is_overall else (
+            _fill(C_OFF_WHITE) if ri % 2 == 0 else _fill(C_WHITE))
+
+        for ci, col_name in enumerate(cols):
+            val = row_data.get(col_name, "")
+            if isinstance(val, float) and not pd.isna(val):
+                val_str = f"{val:.3f}" if col_name in ["HR", "HR_lower", "HR_upper",
+                                                        "p_value", "interaction_p"] else f"{val:.0f}"
+            elif pd.isna(val):
+                val_str = ""
+            else:
+                val_str = str(val)
+
+            _cell(ws, r, 2 + ci, val_str,
+                  font=_font(size=10, bold=is_overall),
+                  fill=fill,
+                  align=_align("left" if ci < 2 else "center", "center"),
+                  border=_thin_border(bottom_only=True))
+
+    # Embed forest plot
+    img_path = Path(OUTPUT_DIR) / "forest_subgroup_analysis.png"
+    img_row = 6 + len(subgroup_df) + 2
+    if img_path.exists():
+        try:
+            img = XLImage(str(img_path))
+            img.width = 680
+            img.height = 400
+            ws.add_image(img, f"B{img_row}")
+        except Exception:
+            pass
+
+    ws.freeze_panes = "B6"
+
+
+def _build_landmark_sheet(wb, landmark_df):
+    """Sheet: Landmark Sensitivity Analysis."""
+    ws = wb.create_sheet("Landmark Sensitivity")
+    ws.sheet_properties.tabColor = C_GOLD
+    _no_gridlines(ws)
+
+    _col(ws, 1, 3)
+    for c in range(2, 12):
+        _col(ws, c, 18)
+    _col(ws, 12, 3)
+
+    _row_h(ws, 1, 8)
+    _row_h(ws, 2, 30)
+    _merge(ws, 2, 2, 11, "Landmark Sensitivity Analysis",
+           font=_font(size=14, bold=True, color=C_WHITE),
+           fill=_fill(C_NAVY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 3, 16)
+    _merge(ws, 3, 2, 11,
+           "Treatment HR re-estimated at different landmark timepoints (27, 29, 32 months).",
+           font=_font(size=10, italic=True, color=C_DARK_GRAY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 4, 10)
+
+    if landmark_df is None or landmark_df.empty:
+        _cell(ws, 5, 2, "No landmark sensitivity results available.",
+              font=_font(size=10, italic=True, color=C_DARK_GRAY))
+        return
+
+    cols = list(landmark_df.columns)
+    _row_h(ws, 5, 22)
+    for ci, col_name in enumerate(cols):
+        _cell(ws, 5, 2 + ci, col_name,
+              font=_font(size=10, bold=True, color=C_WHITE),
+              fill=_fill(C_NAVY),
+              align=_align("center", "center"),
+              border=_thin_border())
+
+    for ri, (_, row_data) in enumerate(landmark_df.iterrows()):
+        r = 6 + ri
+        _row_h(ws, r, 18)
+        fill = _fill(C_OFF_WHITE) if ri % 2 == 0 else _fill(C_WHITE)
+        for ci, col_name in enumerate(cols):
+            val = row_data[col_name]
+            if isinstance(val, float):
+                val_str = f"{val:.3f}" if col_name in ["HR", "HR_lower", "HR_upper",
+                                                        "p_value", "C-index"] else f"{val:.0f}"
+            else:
+                val_str = str(val)
+            _cell(ws, r, 2 + ci, val_str,
+                  font=_font(size=10),
+                  fill=fill,
+                  align=_align("center", "center"),
+                  border=_thin_border(bottom_only=True))
+
+    # Embed plot
+    img_path = Path(OUTPUT_DIR) / "landmark_sensitivity.png"
+    img_row = 6 + len(landmark_df) + 2
+    if img_path.exists():
+        try:
+            img = XLImage(str(img_path))
+            img.width = 560
+            img.height = 360
+            ws.add_image(img, f"B{img_row}")
+        except Exception:
+            pass
+
+
+def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_df,
+                        cox_results=None, lasso_result=None, comparison_df=None,
+                        subgroup_df=None, ph_result=None, landmark_df=None):
     """
     Build and save the full Excel presentation workbook.
 
@@ -718,6 +946,12 @@ def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_d
     km_output      : dict from run_kaplan_meier()
     km_supporting  : dict from build_km_supporting_table()
     table1_df      : DataFrame from generate_table1()
+    cox_results    : dict from run_multiple_cox_models() (optional)
+    lasso_result   : dict from run_lasso_cox() (optional)
+    comparison_df  : DataFrame from build_model_comparison_table() (optional)
+    subgroup_df    : DataFrame from run_subgroup_analyses() (optional)
+    ph_result      : dict from test_proportional_hazards() (optional)
+    landmark_df    : DataFrame from run_landmark_sensitivity() (optional)
     """
     wb = openpyxl.Workbook()
     # Remove default sheet
@@ -734,6 +968,19 @@ def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_d
 
     print("[excel_report] Building Overall Survival sheet...")
     _build_os_analysis(wb, cohort_df, km_output, km_supporting)
+
+    # Cox-related sheets
+    if comparison_df is not None:
+        print("[excel_report] Building Cox Model Comparison sheet...")
+        _build_cox_comparison(wb, comparison_df)
+
+    if subgroup_df is not None:
+        print("[excel_report] Building Subgroup Analysis sheet...")
+        _build_subgroup_sheet(wb, subgroup_df)
+
+    if landmark_df is not None:
+        print("[excel_report] Building Landmark Sensitivity sheet...")
+        _build_landmark_sheet(wb, landmark_df)
 
     print("[excel_report] Building Methodology sheet...")
     _build_methodology(wb, cohort_df, attrition, km_output)
