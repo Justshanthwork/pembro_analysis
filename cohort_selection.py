@@ -93,7 +93,8 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     lot = tables["lot"].copy()
     dose = tables["dose"].copy()
     biomarker = tables.get("biomarker", pd.DataFrame())
-    riskscores = tables.get("riskscores", pd.DataFrame())
+    labs = tables.get("labs", pd.DataFrame())
+    riskscores = tables.get("riskscores", pd.DataFrame())   # fallback for ECOG
     metastases = tables.get("metastases", pd.DataFrame())
 
     attrition = {}
@@ -272,16 +273,33 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         "With Chemo", "Monotherapy"
     )
 
-    # ECOG performance status (closest to LOT start)
-    if not riskscores.empty:
+    # ECOG performance status
+    # Primary source: LABS table (test_name = "ECOG", value = float 0–4)
+    # Fallback: RISKSCORES table (risk_name contains "ECOG", value = string)
+    ecog_ps = None
+
+    if not labs.empty and "test_name" in labs.columns:
+        ecog = labs[labs["test_name"].str.upper().str.contains("ECOG", na=False)].copy()
+        if not ecog.empty:
+            ecog = ecog.sort_values("test_date")
+            ecog_latest = ecog.drop_duplicates("mpi_id", keep="last")[["mpi_id", "value"]]
+            # value is float64 (0.0, 1.0, 2.0...) — convert to string category
+            ecog_latest["ecog_ps"] = ecog_latest["value"].apply(
+                lambda x: str(int(x)) if pd.notna(x) else "Unknown"
+            )
+            ecog_ps = ecog_latest[["mpi_id", "ecog_ps"]]
+
+    if ecog_ps is None and not riskscores.empty:
         ecog = riskscores[riskscores["risk_name"].str.upper().str.contains("ECOG", na=False)].copy()
         if not ecog.empty:
             ecog = ecog.sort_values("test_date")
-            ecog_closest = ecog.drop_duplicates("mpi_id", keep="last")[["mpi_id", "value"]]
-            ecog_closest.rename(columns={"value": "ecog_ps"}, inplace=True)
-            cohort_data = cohort_data.merge(ecog_closest, on="mpi_id", how="left")
-        else:
-            cohort_data["ecog_ps"] = "Unknown"
+            ecog_latest = ecog.drop_duplicates("mpi_id", keep="last")[["mpi_id", "value"]]
+            ecog_latest.rename(columns={"value": "ecog_ps"}, inplace=True)
+            ecog_ps = ecog_latest
+
+    if ecog_ps is not None:
+        cohort_data = cohort_data.merge(ecog_ps, on="mpi_id", how="left")
+        cohort_data["ecog_ps"] = cohort_data["ecog_ps"].fillna("Unknown")
     else:
         cohort_data["ecog_ps"] = "Unknown"
 

@@ -14,10 +14,10 @@ import os
 # ─────────────────────────────────────────────────────────────────────────────
 # 1. DATA PATHS  (change DATA_DIR on your work laptop)
 # ─────────────────────────────────────────────────────────────────────────────
-# Set via environment variable or fall back to a default
+# Set via environment variable or fall back to the data folder below
 DATA_DIR = Path(os.environ.get(
     "PEMBRO_DATA_DIR",
-    Path(__file__).resolve().parent / "data"   # default: ./data subfolder
+    r"C:\Users\prashanth.jain\Desktop\Projects\PEMBRO NSCLC\data\March 2026 DRAFT"
 ))
 
 OUTPUT_DIR = Path(os.environ.get(
@@ -121,6 +121,6 @@ CHEMO_AGENTS = [
 # ─────────────────────────────────────────────────────────────────────────────
 # 6. SYNTHETIC DATA SETTINGS (for testing when real data not available)
 # ─────────────────────────────────────────────────────────────────────────────
-USE_SYNTHETIC_IF_MISSING = True   # auto-generate test data if CSVs not found
+USE_SYNTHETIC_IF_MISSING = False  # use real CSVs only
 SYNTHETIC_N_PATIENTS = 500
 SYNTHETIC_SEED = 42

@@ -351,14 +351,29 @@ def generate_all_synthetic_tables(
         "rsi": None,
     })
 
-    # RISKSCORES — ECOG
-    ecog_values = rng.choice(["0", "1", "2", "3", "Unknown"], size=n, p=[0.25, 0.45, 0.15, 0.05, 0.10])
+    # LABS — ECOG PS (primary source; matches real schema: value=float, value_string=str)
+    ecog_numeric = rng.choice([0, 1, 2, 3], size=n, p=[0.25, 0.45, 0.20, 0.10]).astype(float)
+    labs = pd.DataFrame({
+        "mpi_id": mpi_ids,
+        "division_mask": 1,
+        "combined_div_mpi_id": [f"1_{mid}" for mid in mpi_ids],
+        "test_name": "ECOG",
+        "test_date": lot_start,
+        "value": ecog_numeric,                             # float64, e.g. 0.0, 1.0, 2.0
+        "unit_value": None,
+        "rsi": None,
+        "measurement_concept_id": None,
+        "value_string": ecog_numeric.astype(int).astype(str),  # "0", "1", "2", "3"
+    })
+
+    # RISKSCORES — kept as fallback; ECOG also included here for testing fallback path
+    ecog_str = ecog_numeric.astype(int).astype(str)
     riskscores = pd.DataFrame({
         "mpi_id": mpi_ids,
         "division_mask": 1,
         "combined_div_mpi_id": [f"1_{mid}" for mid in mpi_ids],
         "test_date": lot_start,
-        "value": ecog_values,
+        "value": ecog_str,
         "risk_name": "ECOG",
         "rsi": None,
     })
@@ -404,6 +419,7 @@ def generate_all_synthetic_tables(
         "lot": lot_df,
         "dose": dose_df,
         "biomarker": biomarker,
+        "labs": labs,
         "riskscores": riskscores,
         "metastases": metastases,
         "regimen": regimen_ref,
