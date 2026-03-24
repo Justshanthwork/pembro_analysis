@@ -114,6 +114,11 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     attrition = {}
     attrition["total_patients"] = demo["mpi_id"].nunique()
 
+    # ── Step 0: Age ≥18 ─────────────────────────────────────────────────
+    demo = demo[demo["age_dx"] >= 18].copy()
+    eligible_ids_age = set(demo["mpi_id"].unique())
+    attrition["age_18_plus"] = len(eligible_ids_age)
+
     # ── Step 1: Metastatic NSCLC with C34.X ─────────────────────────────
     disease_met = disease[
         disease["cancer_code"].str.upper().str.startswith("C34", na=False) &
@@ -373,6 +378,7 @@ def print_attrition(attrition: dict) -> None:
     print("=" * 60)
     labels = {
         "total_patients":         "Total patients in dataset",
+        "age_18_plus":            "Age ≥18 years",
         "metastatic_nsclc_c34x":  "Metastatic NSCLC (C34.X)",
         "diagnosis_window":       "Diagnosed 2016-01 to 2025-08",
         "pembro_1l_metastatic":   "Pembrolizumab in 1L metastatic",

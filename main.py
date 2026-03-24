@@ -43,10 +43,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from config import OUTPUT_DIR, FILES
 from data_loader import load_tables
 from cohort_selection import select_cohort, print_attrition
-from analysis import run_kaplan_meier, print_km_summary
+from analysis import run_kaplan_meier, print_km_summary, build_km_supporting_table
 from reporting import (
     generate_table1, plot_km_curves,
     plot_attrition, save_cohort_csv,
+    save_supporting_tables, save_methodology,
 )
 
 
@@ -95,6 +96,9 @@ def main():
     km_output = run_kaplan_meier(cohort_df)
     print_km_summary(km_output)
 
+    # Build supporting KM table
+    km_supporting = build_km_supporting_table(cohort_df, km_output)
+
     # ── 4. Generate Reports ─────────────────────────────────────────────
     print("\n[4/4] Generating reports and figures...")
     Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
@@ -106,6 +110,12 @@ def main():
 
     # KM curves
     plot_km_curves(km_output)
+
+    # Supporting KM tables
+    save_supporting_tables(km_supporting, km_output)
+
+    # Methodology summary
+    save_methodology(cohort_df, attrition, km_output)
 
     # Attrition diagram
     plot_attrition(attrition)

@@ -357,6 +357,111 @@ def plot_attrition(
 # SAVE ANALYSIS COHORT
 # ─────────────────────────────────────────────────────────────────────────────
 
+def save_supporting_tables(km_supporting: dict, km_output: dict) -> None:
+    """Save KM supporting table and number-at-risk table as CSVs."""
+    ensure_output_dir()
+
+    # Summary table
+    st = km_supporting["summary_table"]
+    st.to_csv(OUTPUT_DIR / "km_supporting_table.csv", index=False)
+    print(f"[reporting] KM supporting table saved to {OUTPUT_DIR / 'km_supporting_table.csv'}")
+    print("\n--- KM Supporting Table ---")
+    print(st.to_string(index=False))
+
+    # Number at risk
+    nar = km_supporting["number_at_risk"]
+    nar.to_csv(OUTPUT_DIR / "km_number_at_risk.csv", index=False)
+    print(f"\n[reporting] Number-at-risk table saved to {OUTPUT_DIR / 'km_number_at_risk.csv'}")
+    print("\n--- Number at Risk ---")
+    print(nar.to_string(index=False))
+
+
+def save_methodology(cohort_df: pd.DataFrame, attrition: dict, km_output: dict) -> None:
+    """Save a plain-text methodology summary to the output folder."""
+    ensure_output_dir()
+    from config import (
+        DIAGNOSIS_START, DIAGNOSIS_END, FOLLOWUP_CUTOFF,
+        FIXED_DURATION_LOWER_MONTHS, FIXED_DURATION_UPPER_MONTHS,
+        CONTINUATION_LOWER_MONTHS, LANDMARK_MONTHS,
+        MAX_INFUSION_GAP_DAYS, CHEMO_PROXIMITY_EXCLUSION_DAYS,
+    )
+    import datetime
+
+    n_total   = attrition.get("total_patients", "N/A")
+    n_final   = len(cohort_df)
+    n_fd      = (cohort_df["cohort"] == "Fixed-Duration").sum()
+    n_cont    = (cohort_df["cohort"] == "Continuation").sum()
+    lr        = km_output["logrank"]
+    p_val     = f"{lr.p_value:.4f}" if lr is not None else "N/A"
+
+    lines = [
+        "METHODOLOGY SUMMARY",
+        "=" * 70,
+        "",
+        "Study Design",
+        "  Retrospective observational cohort study using IC PrecisionQ real-world",
+        "  electronic health record (EHR) data with a landmark analysis design.",
+        "",
+        "Data Source",
+        "  IC PrecisionQ NSCLC dataset. Follow-up through 02/28/2026.",
+        "",
+        "Study Population",
+        f"  Total patients in dataset:            {n_total:,}",
+        f"  Final analysis cohort (post-landmark): {n_final:,}",
+        f"    Fixed-Duration cohort:               {n_fd:,}",
+        f"    Continuation cohort:                 {n_cont:,}",
+        "",
+        "Inclusion Criteria",
+        "  - Age ≥18 years",
+        "  - Metastatic NSCLC (ICD-10: C34.X), de novo or recurrent",
+        f"  - Diagnosis date: {DIAGNOSIS_START} to {DIAGNOSIS_END}",
+        "  - Pembrolizumab in first metastatic line of therapy (with or without chemo)",
+        f"  - At least one pembrolizumab infusion at ≥{FIXED_DURATION_LOWER_MONTHS} months from treatment start",
+        f"  - Alive at {LANDMARK_MONTHS}-month landmark",
+        "",
+        "Exclusion Criteria",
+        f"  - Chemotherapy within {CHEMO_PROXIMITY_EXCLUSION_DAYS} days of last pembrolizumab infusion",
+        "    (interpreted as progression-motivated treatment stop)",
+        "",
+        "Treatment Gap Rule",
+        f"  If two consecutive pembrolizumab infusions were >{MAX_INFUSION_GAP_DAYS} days apart,",
+        "  treatment was considered to have ended at the earlier infusion date.",
+        "",
+        "Exposure Groups",
+        f"  Fixed-Duration: last infusion {FIXED_DURATION_LOWER_MONTHS}–{FIXED_DURATION_UPPER_MONTHS} months from treatment start",
+        f"  Continuation:   last infusion >{CONTINUATION_LOWER_MONTHS} months from treatment start",
+        "",
+        "Landmark Definition",
+        f"  {LANDMARK_MONTHS} months following pembrolizumab initiation.",
+        "  Only patients alive and under observation at the landmark are included.",
+        "",
+        "Primary Endpoint",
+        "  Overall survival (OS): time from landmark date to death from any cause.",
+        f"  Patients alive at end of follow-up censored at date of last clinical contact",
+        f"  (administrative censoring at {FOLLOWUP_CUTOFF}).",
+        "",
+        "Statistical Methods",
+        "  - Kaplan-Meier method for survival estimation",
+        "  - Log-rank test for between-group comparison (two-sided, α=0.05)",
+        f"  - Log-rank p-value: {p_val}",
+        "  - Median follow-up estimated using reverse Kaplan-Meier (Schemper & Smith method)",
+        "  - Multivariable Cox proportional hazards model (deferred — see SAP)",
+        "",
+        "Software",
+        "  Python (lifelines, pandas, matplotlib)",
+        "",
+        f"Report generated: {datetime.date.today().isoformat()}",
+        "=" * 70,
+    ]
+
+    text = "\n".join(lines)
+    print("\n" + text)
+
+    out = OUTPUT_DIR / "methodology_summary.txt"
+    out.write_text(text, encoding="utf-8")
+    print(f"\n[reporting] Methodology summary saved to {out}")
+
+
 def save_cohort_csv(cohort_df: pd.DataFrame, filename: str = "analysis_cohort.csv") -> Path:
     """Save the analysis-ready cohort to CSV."""
     ensure_output_dir()

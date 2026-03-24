@@ -186,6 +186,120 @@ def print_km_summary(km_output: dict) -> None:
     print("=" * 70)
 
 
+def build_km_supporting_table(
+    cohort_df: pd.DataFrame,
+    km_output: dict,
+    time_points: list = None,
+    time_col: str = "os_time_months",
+    event_col: str = "os_event",
+    group_col: str = "cohort",
+) -> dict:
+    """
+    Build supporting tables for the KM survival curve:
+      1. Summary table: N, events, median OS (95% CI), OS rates at fixed time points,
+         median follow-up (reverse KM)
+      2. Number-at-risk table at fixed time points
+
+    Returns dict with keys: 'summary_table', 'number_at_risk'
+    """
+    if time_points is None:
+        time_points = [0, 6, 12, 18, 24, 30, 36]
+
+    km_results = km_output["km_results"]
+    lr = km_output["logrank"]
+    groups = sorted(km_results.keys())
+
+    # ── Summary table ────────────────────────────────────────────────────
+    summary_rows = []
+    for grp in groups:
+        kmf = km_results[grp]
+        mask = cohort_df[group_col] == grp
+        grp_df = cohort_df[mask]
+        n = len(grp_df)
+        n_events = int(grp_df[event_col].sum())
+
+        # Median OS and 95% CI
+        median_os = kmf.median_survival_time_
+        try:
+            from lifelines.utils import median_survival_times
+            ci_df = median_survival_times(kmf.confidence_interval_survival_function_)
+            ci_lower = float(ci_df.iloc[0, 0])
+            ci_upper = float(ci_df.iloc[0, 1])
+        except Exception:
+            ci_lower, ci_upper = np.nan, np.nan
+
+        # OS rates at fixed time points
+        sf = kmf.survival_function_
+        ci_sf = kmf.confidence_interval_survival_function_
+        lower_col = ci_sf.columns[0]
+        upper_col = ci_sf.columns[1]
+
+        os_rates = {}
+        for t in time_points:
+            if t == 0:
+                continue
+            try:
+                idx = sf.index[sf.index <= t]
+                if len(idx) == 0:
+                    rate = 1.0
+                    rate_lo, rate_hi = 1.0, 1.0
+                else:
+                    rate = float(sf.loc[idx[-1]].iloc[0])
+                    rate_lo = float(ci_sf.loc[idx[-1], lower_col])
+                    rate_hi = float(ci_sf.loc[idx[-1], upper_col])
+                os_rates[t] = f"{rate*100:.1f}% ({rate_lo*100:.1f}–{rate_hi*100:.1f})"
+            except Exception:
+                os_rates[t] = "—"
+
+        # Median follow-up (reverse KM: flip event indicator)
+        kmf_rev = KaplanMeierFitter()
+        kmf_rev.fit(
+            durations=grp_df[time_col],
+            event_observed=1 - grp_df[event_col],  # reversed
+        )
+        median_fu = kmf_rev.median_survival_time_
+
+        row = {
+            "Cohort": grp,
+            "N": n,
+            "Events, n (%)": f"{n_events} ({n_events/n*100:.1f}%)",
+            "Median follow-up, months": round(median_fu, 1),
+            "Median OS, months (95% CI)": f"{median_os:.1f} ({ci_lower:.1f}–{ci_upper:.1f})" if not np.isnan(ci_lower) else f"{median_os:.1f} (NR–NR)",
+        }
+        for t in time_points:
+            if t == 0:
+                continue
+            row[f"OS at {t}m, % (95% CI)"] = os_rates[t]
+        summary_rows.append(row)
+
+    # Add log-rank p-value as a footer row
+    if lr is not None:
+        footer = {"Cohort": f"Log-rank p-value: {lr.p_value:.4f}"}
+        summary_rows.append(footer)
+
+    summary_table = pd.DataFrame(summary_rows)
+
+    # ── Number-at-risk table ─────────────────────────────────────────────
+    nar_rows = []
+    for grp in groups:
+        kmf = km_results[grp]
+        row = {"Cohort": grp}
+        for t in time_points:
+            try:
+                et = kmf.event_table
+                at_risk = et.loc[et.index <= t, "at_risk"]
+                row[f"t={t}m"] = int(at_risk.iloc[-1]) if len(at_risk) > 0 else 0
+            except Exception:
+                row[f"t={t}m"] = "—"
+        nar_rows.append(row)
+    number_at_risk = pd.DataFrame(nar_rows)
+
+    return {
+        "summary_table": summary_table,
+        "number_at_risk": number_at_risk,
+    }
+
+
 def print_cox_summary(cox_output: dict) -> None:
     """Print Cox model results to console."""
     print("\n" + "=" * 70)
