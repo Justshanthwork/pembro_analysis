@@ -12,6 +12,19 @@ from pathlib import Path
 import os
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 0. SNOWFLAKE CONNECTION  (used when CSVs are not available locally)
+# ─────────────────────────────────────────────────────────────────────────────
+SNOWFLAKE_CONFIG = {
+    "user":          "prashanth.jain@integraconnect.com",
+    "account":       "integraconnect-heor",
+    "warehouse":     "WH_M",
+    "database":      "DEV_SS_OUTPUT",
+    "schema":        "PUBLIC",
+    "role":          "RBA_NP-DATAANALYST",
+    "authenticator": "externalbrowser",
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 1. DATA PATHS  (change DATA_DIR on your work laptop)
 # ─────────────────────────────────────────────────────────────────────────────
 # Set via environment variable or fall back to the data folder below
@@ -24,6 +37,16 @@ OUTPUT_DIR = Path(os.environ.get(
     "PEMBRO_OUTPUT_DIR",
     Path(__file__).resolve().parent / "output"
 ))
+
+# Local parquet cache — tables are saved here after Snowflake pull
+# Delete individual .parquet files (or run with --refresh) to force re-pull
+CACHE_DIR = Path(os.environ.get(
+    "PEMBRO_CACHE_DIR",
+    Path(__file__).resolve().parent / "cache"
+))
+
+# Auto-invalidate cache after this many days (0 = never auto-expire)
+CACHE_MAX_AGE_DAYS = 7
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. FILE REGISTRY  (IC PrecisionQ NSCLC file names)

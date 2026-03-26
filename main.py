@@ -42,6 +42,7 @@ Minimum CSVs required (copy these files):
 """
 
 import sys
+import argparse
 import warnings
 warnings.filterwarnings("ignore")
 
@@ -55,7 +56,7 @@ from config import (
     SUBGROUP_VARIABLES, LANDMARK_SENSITIVITY_MONTHS,
     USE_LASSO_SELECTION, LASSO_ALPHA_RANGE,
 )
-from data_loader import load_tables
+from data_loader import load_tables, cache_status
 from cohort_selection import select_cohort, print_attrition
 from analysis import run_kaplan_meier, print_km_summary, build_km_supporting_table
 from cox_analysis import (
@@ -76,7 +77,39 @@ from reporting import (
 from excel_report import create_excel_report
 
 
+def _parse_args():
+    p = argparse.ArgumentParser(
+        description="Pembro Fixed-Duration vs Continuation OS Analysis"
+    )
+    p.add_argument(
+        "--refresh", nargs="*", metavar="TABLE",
+        help=(
+            "Re-pull from Snowflake. No args = refresh all tables. "
+            "Pass table names to refresh only those, e.g. --refresh dose demographics"
+        ),
+    )
+    p.add_argument(
+        "--cache-status", action="store_true",
+        help="Show cache age/row counts and exit.",
+    )
+    return p.parse_args()
+
+
 def main():
+    args = _parse_args()
+
+    if args.cache_status:
+        cache_status()
+        sys.exit(0)
+
+    # Resolve force_refresh value
+    if args.refresh is None:
+        force_refresh = False          # use cache
+    elif len(args.refresh) == 0:
+        force_refresh = True           # --refresh with no args → all tables
+    else:
+        force_refresh = args.refresh   # --refresh dose demographics → specific tables
+
     print("=" * 70)
     print("PEMBROLIZUMAB FIXED-DURATION vs CONTINUATION — OS LANDMARK ANALYSIS")
     print("Phase: FULL (OS + Table 1 + Cox Models + Sensitivity)")
@@ -91,12 +124,7 @@ def main():
 
     # ── 1. Load Data ──────────────────────────────────────────────────────
     print("\n[1/8] Loading data...")
-    print("Required CSVs for this phase:")
-    for t in required_tables:
-        fname = FILES.get(t, f"(table: {t})")
-        print(f"  {fname}")
-    print()
-    tables = load_tables(table_names=required_tables)
+    tables = load_tables(table_names=required_tables, force_refresh=force_refresh)
 
     # ── 2. Cohort Selection ───────────────────────────────────────────────
     print("\n[2/8] Applying SAP inclusion/exclusion criteria...")
