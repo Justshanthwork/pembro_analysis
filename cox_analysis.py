@@ -27,17 +27,22 @@ from lifelines.statistics import logrank_test
 # HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
+MIN_CELL_COUNT = 10  # minimum patients in a dummy category to keep it in the model
+
+
 def _prepare_cox_df(
     cohort_df: pd.DataFrame,
     covariates: list[str],
     time_col: str = "os_time_months",
     event_col: str = "os_event",
     treatment_col: str = "cohort",
+    min_cell: int = MIN_CELL_COUNT,
 ) -> pd.DataFrame:
     """
     Prepare a model-ready DataFrame:
       - Encode treatment as binary (Continuation=1, Fixed-Duration=0)
       - One-hot encode categoricals (drop_first=True)
+      - Drop dummy columns with fewer than min_cell patients (avoids singular matrices)
       - Fill numeric NaN with median
       - Drop rows with zero/negative time
     """
@@ -54,6 +59,8 @@ def _prepare_cox_df(
         col = df[cov]
         if col.dtype == "object" or str(col.dtype) == "category":
             dummies = pd.get_dummies(col, prefix=cov, drop_first=True, dtype=int)
+            # Drop rare categories — they cause singular matrices
+            dummies = dummies.loc[:, dummies.sum() >= min_cell]
             df = pd.concat([df, dummies], axis=1)
             model_cols.extend(dummies.columns.tolist())
         else:
@@ -187,14 +194,30 @@ def run_lasso_cox(
     if "treatment_continuation" not in selected:
         selected = ["treatment_continuation"] + selected
 
-    print(f"  LASSO (alpha={best_alpha}): selected {len(selected)} variables")
-    print(f"    Selected: {selected}")
+    # Filter selected vars: drop any dummy where the column sum < MIN_CELL_COUNT
+    selected_clean = []
+    for col in selected:
+        if col == "treatment_continuation":
+            selected_clean.append(col)
+        elif col in model_df.columns and model_df[col].sum() >= MIN_CELL_COUNT:
+            selected_clean.append(col)
+        else:
+            pass  # silently drop sparse dummies
+
+    print(f"  LASSO (alpha={best_alpha}): selected {len(selected_clean)} variables "
+          f"(after dropping {len(selected) - len(selected_clean)} sparse dummies)")
+    print(f"    Selected: {selected_clean}")
 
     # Refit unpenalized with selected variables
-    refit_df = model_df[selected + [time_col, event_col]].copy()
-    cph_refit = CoxPHFitter()
-    cph_refit.fit(refit_df, duration_col=time_col, event_col=event_col,
-                  show_progress=False)
+    refit_df = model_df[selected_clean + [time_col, event_col]].copy()
+    try:
+        cph_refit = CoxPHFitter()
+        cph_refit.fit(refit_df, duration_col=time_col, event_col=event_col,
+                      show_progress=False)
+    except Exception as e:
+        print(f"  LASSO unpenalized refit failed ({e}). Returning penalized model.")
+        cph_refit = best_cph
+        selected_clean = selected
 
     tx_summary = cph_refit.summary.loc["treatment_continuation"]
 
@@ -202,7 +225,7 @@ def run_lasso_cox(
         "cph": cph_refit,
         "summary": cph_refit.summary,
         "concordance": cph_refit.concordance_index_,
-        "selected_covariates": selected,
+        "selected_covariates": selected_clean,
         "best_alpha": best_alpha,
         "n_patients": len(refit_df),
         "n_events": int(refit_df[event_col].sum()),

@@ -92,10 +92,9 @@ TABLE_FILTERS: dict[str, str] = {
     # Only PD-L1 biomarker results
     "biomarker": "UPPER(BIOMARKER_NAME) LIKE '%PD-L1%'",
 
-    # Only ECOG measurements
-    "vitals":     "UPPER(TEST_NAME) LIKE '%ECOG%'",
-    "labs":       "UPPER(TEST_NAME) LIKE '%ECOG%'",
-    "riskscores": "UPPER(RISK_NAME) LIKE '%ECOG%'",
+    # Only ECOG measurements — confirmed working via vitals
+    "vitals": "UPPER(TEST_NAME) LIKE '%ECOG%'",
+    "labs":   None,   # pull all — column name unknown, will discover on next pull
 
     # Only brain metastases
     "metastases": "LOWER(METASTATIC_SITE) LIKE '%brain%'",
@@ -105,8 +104,8 @@ TABLE_FILTERS: dict[str, str] = {
         f"LEFT(UPPER(ICD_CODE), 3) IN ({', '.join(_icd_prefixes)})"
     ),
 
-    # Only relevant medication entries
-    "medicalcondition": f"LOWER(DESCRIPTION) RLIKE '{_med_pattern}'",
+    # Pull all — RLIKE pattern may not match Snowflake terminology
+    "medicalcondition": None,
 }
 
 
@@ -187,7 +186,7 @@ def _pull_from_snowflake(table_names: list[str]) -> dict[str, pd.DataFrame]:
 
             where = TABLE_FILTERS.get(name)
             sql = f"SELECT * FROM {table}"
-            if where:
+            if where:  # None means no filter — pull all rows
                 sql += f"\nWHERE {where}"
 
             print(f"  ↓ {name:20s}  querying...", end="", flush=True)
@@ -230,7 +229,7 @@ def load_tables(
     if table_names is None:
         table_names = [
             "demographics", "disease", "lot", "dose",
-            "biomarker", "vitals", "labs", "riskscores",
+            "biomarker", "vitals", "labs",
             "metastases", "comorbidities", "medicalcondition",
         ]
 

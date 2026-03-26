@@ -118,7 +118,7 @@ def main():
     # ── Required tables ───────────────────────────────────────────────────
     required_tables = [
         "demographics", "disease", "lot", "dose",
-        "biomarker", "vitals", "labs", "riskscores", "metastases",
+        "biomarker", "vitals", "labs", "metastases",
         "comorbidities", "medicalcondition",
     ]
 
