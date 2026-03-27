@@ -83,12 +83,12 @@ def generate_table1(
         "Race": "race",
         "Payer": "payer",
         "Smoking History": "smoking_history",
-        "ECOG PS": "ecog_ps",
-        "PD-L1 Status": "pdl1_status",
-        "Histology": "histology",
+        "ECOG (<=1 vs 2+)": "ecog_binary",
+        "PD-L1 Category": "pdl1_cat",
+        "Histology Category": "histology_cat",
         "De Novo vs Recurrent": "de_novo_vs_recurrent",
         "Brain Metastases": "brain_mets",
-        "Pembro ± Chemo": "pembro_with_chemo",
+        "Treatment Type": "pembro_with_chemo",
     }
 
     for label, col in cat_vars.items():
@@ -445,7 +445,10 @@ def save_methodology(cohort_df: pd.DataFrame, attrition: dict, km_output: dict) 
         "  - Log-rank test for between-group comparison (two-sided, α=0.05)",
         f"  - Log-rank p-value: {p_val}",
         "  - Median follow-up estimated using reverse Kaplan-Meier (Schemper & Smith method)",
-        "  - Multivariable Cox proportional hazards model (deferred — see SAP)",
+        "  - Primary Cox proportional hazards model adjusted for age (continuous), race, ECOG (<=1 vs 2+),",
+        "    PD-L1 category (<1%/negative, 1-49%, >=50%, unknown), histology category",
+        "    (squamous, non-squamous including adenocarcinoma, unknown), and treatment type",
+        "    (with or without chemotherapy)",
         "",
         "Software",
         "  Python (lifelines, pandas, matplotlib)",
@@ -848,10 +851,9 @@ def save_cox_tables(
                            index=False, encoding="utf-8-sig")
         print(f"[reporting] Landmark sensitivity saved to {OUTPUT_DIR / 'cox_landmark_sensitivity.csv'}")
 
-    # Full model summary for the "full" model
-    for model_name in ["full", "clinical"]:
-        if model_name in cox_results and "summary" in cox_results[model_name]:
-            cox_results[model_name]["summary"].to_csv(
+    for model_name, result in cox_results.items():
+        if "summary" in result:
+            result["summary"].to_csv(
                 OUTPUT_DIR / f"cox_{model_name}_model_summary.csv",
                 encoding="utf-8-sig")
             print(f"[reporting] {model_name} model summary saved")

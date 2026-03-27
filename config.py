@@ -131,7 +131,7 @@ COVARIATES_ADJUSTED = [
     "ecog_binary",       # ≤1 vs 2+
     "pdl1_cat",          # <1%/Negative | 1-49% | ≥50% | Unknown
     "histology_cat",     # Squamous | Non-Squamous | Unknown
-    "pembro_with_chemo", # With Chemo | Monotherapy
+    "pembro_with_chemo", # With Chemo | Without Chemo
 ]
 
 # Core covariates (broader set for sensitivity / full model)
@@ -170,12 +170,9 @@ COVARIATES_MEDICATIONS = [
 # Full covariate set = core + comorbidities + medications
 COVARIATES = COVARIATES_CORE + COVARIATES_COMORBIDITIES + COVARIATES_MEDICATIONS
 
-# Covariate sets for multiple Cox models
-# "adjusted" = primary recommended model; others for sensitivity
+# Primary prespecified Cox model used for reporting
 COX_MODEL_SPECS = {
-    "unadjusted":  [],
-    "adjusted":    COVARIATES_ADJUSTED,   # PRIMARY — per collaborator recommendation
-    "full":        COVARIATES,            # sensitivity — all available covariates
+    "adjusted": COVARIATES_ADJUSTED,
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -185,7 +182,7 @@ SUBGROUP_VARIABLES = [
     ("gender",              ["M", "F"]),
     ("histology_cat",       ["Squamous", "Non-Squamous"]),          # recoded per recommendation
     ("pdl1_cat",            ["≥50%", "1-49%", "<1% / Negative"]),   # recoded per recommendation
-    ("pembro_with_chemo",   ["With Chemo", "Monotherapy"]),
+    ("pembro_with_chemo",   ["With Chemo", "Without Chemo"]),
     ("ecog_binary",         ["≤1", "2+"]),                          # recoded per recommendation
     ("brain_mets",          ["Yes", "No"]),
     ("de_novo_vs_recurrent", ["De novo", "Recurrent"]),
@@ -209,7 +206,7 @@ CHEMO_AGENTS = [
 # 6. SYNTHETIC DATA SETTINGS (for testing when real data not available)
 # ─────────────────────────────────────────────────────────────────────────────
 USE_SYNTHETIC_IF_MISSING = False  # set True to test with synthetic data; False for real CSVs only
-USE_LASSO_SELECTION = True      # use LASSO to select covariates for one model
+USE_LASSO_SELECTION = False     # presentation workflow uses the prespecified adjusted model
 LASSO_ALPHA_RANGE = [0.01, 0.05, 0.1, 0.5, 1.0]
 
 SYNTHETIC_N_PATIENTS = 500

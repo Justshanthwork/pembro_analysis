@@ -22,6 +22,7 @@ Steps follow the SAP sequentially:
 
 import pandas as pd
 import numpy as np
+import re
 from dateutil.relativedelta import relativedelta
 from config import (
     DIAGNOSIS_START, DIAGNOSIS_END, FOLLOWUP_CUTOFF,
@@ -330,8 +331,6 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         "Fixed-Duration",
         "Continuation",
     )
-    attrition["fixed_duration"] = (cohort_data["cohort"] == "Fixed-Duration").sum()
-    attrition["continuation"] = (cohort_data["cohort"] == "Continuation").sum()
 
     # ── Step 8: Landmark at 29 months — must be alive ───────────────────
     cohort_data["landmark_date"] = cohort_data["start_date"] + pd.to_timedelta(
@@ -357,6 +356,8 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     cohort_data = cohort_data[cohort_data["alive_at_landmark"]].copy()
     eligible_ids = set(cohort_data["mpi_id"])
     attrition["alive_at_landmark"] = len(eligible_ids)
+    attrition["fixed_duration"] = int((cohort_data["cohort"] == "Fixed-Duration").sum())
+    attrition["continuation"] = int((cohort_data["cohort"] == "Continuation").sum())
 
     # ── Step 9: Derive survival outcomes ────────────────────────────────
     # OS definition:
@@ -397,15 +398,23 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     # (Squamous | Non-Squamous [incl. adenocarcinoma] | Unknown)
     def _histology_cat(val):
         s = str(val).strip().lower()
-        if s in ("nan", "none", "", "unknown", "not specified", "nos"):
+        if s in ("nan", "none", "", "unknown", "not specified", "nos", "missing"):
             return "Unknown"
+        if any(term in s for term in [
+            "adenocarcinoma", "adeno", "adenosquamous",
+            "large cell", "non-squamous", "nonsquamous",
+        ]):
+            return "Non-Squamous"
         if "squamous" in s:
             return "Squamous"
-        return "Non-Squamous"   # adenocarcinoma + large cell + NSCLC NOS + other
+        return "Unknown"
     cohort_data["histology_cat"] = cohort_data["histology"].apply(_histology_cat)
 
     demo_cov = demo[["mpi_id", "age_dx", "gender", "race", "payer", "smoking_history"]].drop_duplicates("mpi_id")
     cohort_data = cohort_data.merge(demo_cov, on="mpi_id", how="left")
+    for col in ["gender", "race", "payer", "smoking_history"]:
+        if col in cohort_data.columns:
+            cohort_data[col] = cohort_data[col].fillna("Unknown")
 
     # Age at index
     cohort_data["age_at_index"] = (
@@ -419,10 +428,14 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         "De novo", "Recurrent"
     )
 
-    # Pembro with chemo (regimen uses comma-separated drug names)
+    # Treatment type derived from regimen components
+    regimen_text = cohort_data["regimen"].fillna("").str.lower()
+    chemo_pattern = "|".join(re.escape(agent.lower()) for agent in CHEMO_AGENTS)
+    has_chemo = regimen_text.str.contains(chemo_pattern, regex=True, na=False)
     cohort_data["pembro_with_chemo"] = np.where(
-        cohort_data["regimen"].str.contains(",", na=False),
-        "With Chemo", "Monotherapy"
+        regimen_text.eq(""),
+        "Unknown",
+        np.where(has_chemo, "With Chemo", "Without Chemo"),
     )
 
     # ECOG performance status
@@ -491,19 +504,38 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
             return "Unknown"
     cohort_data["ecog_binary"] = cohort_data["ecog_ps"].apply(_ecog_binary)
 
-    # PD-L1 status
+    # PD-L1 status — closest reading to treatment start (prefer within ±180 days)
     if not biomarker.empty:
         pdl1 = biomarker[biomarker["biomarker_name"].str.upper().str.contains("PD-L1", na=False)].copy()
         if not pdl1.empty:
-            pdl1_closest = pdl1.sort_values("test_date").drop_duplicates("mpi_id", keep="last")
-            pdl1_closest = pdl1_closest[["mpi_id", "test_result"]].rename(
-                columns={"test_result": "pdl1_status"}
+            result_col = next(
+                (c for c in ["test_result", "result_value", "value"] if c in pdl1.columns),
+                None,
             )
-            cohort_data = cohort_data.merge(pdl1_closest, on="mpi_id", how="left")
+            if result_col is not None:
+                if "test_date" in pdl1.columns:
+                    pdl1 = pdl1.merge(ref_df, on="mpi_id", how="inner")
+                    pdl1["days_diff"] = (pdl1["test_date"] - pdl1["ref_date"]).dt.days.abs()
+                    in_window = pdl1[pdl1["days_diff"] <= ECOG_WINDOW_DAYS]
+                    pool = in_window if not in_window.empty else pdl1
+                    pdl1_best = (
+                        pool.sort_values(["days_diff", "test_date"], ascending=[True, False])
+                        .drop_duplicates("mpi_id", keep="first")
+                    )
+                else:
+                    pdl1_best = pdl1.drop_duplicates("mpi_id", keep="last")
+
+                pdl1_best = pdl1_best[["mpi_id", result_col]].rename(
+                    columns={result_col: "pdl1_status"}
+                )
+                cohort_data = cohort_data.merge(pdl1_best, on="mpi_id", how="left")
+            else:
+                cohort_data["pdl1_status"] = "Unknown"
         else:
             cohort_data["pdl1_status"] = "Unknown"
     else:
         cohort_data["pdl1_status"] = "Unknown"
+    cohort_data["pdl1_status"] = cohort_data["pdl1_status"].fillna("Unknown")
 
     # PD-L1 4-tier recoding per collaborator recommendation
     # (<1%/Negative | 1-49% | ≥50% | Unknown)

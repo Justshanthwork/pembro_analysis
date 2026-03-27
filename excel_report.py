@@ -113,9 +113,9 @@ def _no_gridlines(ws):
 def _format_adjusted_covariates(covariates):
     """Convert adjusted model covariate names into presentation-friendly labels."""
     label_map = {
-        "age_at_index": "age",
+        "age_at_index": "age (continuous)",
         "race": "race",
-        "ecog_binary": "ECOG",
+        "ecog_binary": "ECOG (<=1 vs 2+)",
         "pdl1_cat": "PD-L1",
         "histology_cat": "histology",
         "pembro_with_chemo": "treatment type",
@@ -177,7 +177,15 @@ def _build_overview(wb, cohort_df, attrition, km_output):
         hi = row.iloc[0]["95% CI Upper"]
         if pd.isna(m):
             return "NR"
-        return f"{m:.1f} mo\n(95% CI: {lo:.1f}-{hi:.1f})"
+        bounds = [b for b in [lo, hi] if not pd.isna(b)]
+        if len(bounds) == 2:
+            lo_disp, hi_disp = sorted(bounds)
+            ci_text = f"{lo_disp:.1f}-{hi_disp:.1f}"
+        elif len(bounds) == 1:
+            ci_text = f"{bounds[0]:.1f}-NE"
+        else:
+            ci_text = "NE"
+        return f"{m:.1f} mo\n(95% CI: {ci_text})"
 
     metrics = [
         ("Analysis Cohort", f"{n_tot:,} patients", C_NAVY),
@@ -662,17 +670,16 @@ def _build_methodology(wb, cohort_df, attrition, km_output):
         (None, "  - Log-rank test for between-group comparison (two-sided, alpha = 0.05)", "body"),
         (None, f"  - Observed log-rank p-value: {p_val}", "body"),
         (None, "  - Median follow-up estimated using reverse Kaplan-Meier (Schemper & Smith method)", "body"),
-        (None, "  - Multivariable Cox proportional hazards (CoxPH) models with sequential confounder adjustment", "body"),
+        (None, "  - Primary Cox proportional hazards model adjusted for age (continuous), race, ECOG (<=1 vs 2+),", "body"),
+        (None, "    PD-L1 category (<1%/negative, 1-49%, >=50%, unknown), histology category", "body"),
+        (None, "    (squamous, non-squamous including adenocarcinoma, unknown), and treatment type", "body"),
+        (None, "    (with or without chemotherapy)", "body"),
         (None, "  - Schoenfeld residuals test for proportional hazards (PH) assumption (global + per covariate)", "body"),
         (None, "  - Subgroup analyses within 7 pre-specified subgroups with treatment-by-subgroup interaction testing", "body"),
         (None, "  - Landmark sensitivity: treatment HR re-estimated at 27, 29, and 32-month landmarks", "body"),
-        (None, "  - LASSO-penalized Cox (L1, cross-validated alpha) for data-driven covariate selection", "body"),
-        ("Cox Model Hierarchy", None, "section"),
-        (None, "  Model 1 (Unadjusted): Treatment indicator only", "body"),
-        (None, "  Model 2 (Minimal): + Age at landmark, sex", "body"),
-        (None, "  Model 3 (Clinical): + ECOG, PD-L1, histology, brain mets, de novo vs recurrent, pembro ± chemo, smoking", "body"),
-        (None, "  Model 4 (Full): Model 3 + comorbidities (diabetes, respiratory, cardiac, kidney) + medication proxies", "body"),
-        (None, "  Model 5 (LASSO): LASSO-selected subset of Model 4 covariates (data-driven)", "body"),
+        ("Primary Cox Model", None, "section"),
+        (None, "  Treatment comparison: Continuation vs Fixed-Duration", "body"),
+        (None, f"  Adjusted covariates: {_format_adjusted_covariates(COVARIATES_ADJUSTED)}", "body"),
         ("Software", None, "section"),
         (None, "Python 3.x with lifelines, pandas, matplotlib, openpyxl", "body"),
         ("References", None, "section"),
@@ -853,6 +860,148 @@ def _build_cox_comparison(wb, comparison_df, cox_results=None):
             pass
 
     ws.freeze_panes = f"B{current_row + 1}"
+
+
+def _build_adjusted_cox_sheet(wb, cox_results):
+    """Sheet: primary adjusted Cox model only."""
+    ws = wb.create_sheet("Adjusted Cox Model")
+    ws.sheet_properties.tabColor = "B2182B"
+    _no_gridlines(ws)
+
+    _col(ws, 1, 3)
+    _col(ws, 2, 34)
+    _col(ws, 3, 24)
+    _col(ws, 4, 16)
+    _col(ws, 5, 12)
+    _col(ws, 6, 14)
+    _col(ws, 7, 3)
+
+    adjusted_result = None
+    if cox_results and "adjusted" in cox_results:
+        candidate = cox_results["adjusted"]
+        if candidate and "error" not in candidate and "treatment_hr" in candidate:
+            adjusted_result = candidate
+
+    _row_h(ws, 1, 8)
+    _row_h(ws, 2, 30)
+    _merge(ws, 2, 2, 6, "Adjusted Cox Model — Overall Survival",
+           font=_font(size=14, bold=True, color=C_WHITE),
+           fill=_fill(C_NAVY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 3, 18)
+    _merge(ws, 3, 2, 6,
+           "Primary multivariable Cox model for Continuation vs Fixed-Duration pembrolizumab.",
+           font=_font(size=10, italic=True, color=C_DARK_GRAY),
+           align=_align("left", "center", indent=1))
+
+    if adjusted_result is None:
+        _cell(ws, 5, 2, "No adjusted Cox model results available.",
+              font=_font(size=10, italic=True, color=C_DARK_GRAY))
+        return
+
+    tx_hr = adjusted_result["treatment_hr"]
+    n_patients = adjusted_result.get("n_patients", "—")
+    n_events = adjusted_result.get("n_events", "—")
+    c_index = adjusted_result.get("concordance", float("nan"))
+
+    _row_h(ws, 5, 38)
+    _merge(ws, 5, 2, 6,
+           "Adjusted for age (continuous), race, ECOG (<=1 vs 2+), PD-L1 "
+           "(<1%/negative, 1-49%, >=50%, unknown), histology "
+           "(squamous, non-squamous including adenocarcinoma, unknown), and "
+           "treatment type (with or without chemotherapy).",
+           font=_font(size=10),
+           fill=_fill(C_OFF_WHITE),
+           align=_align("left", "center", wrap=True, indent=1),
+           border=_thin_border())
+
+    _row_h(ws, 6, 18)
+    c_index_text = f"{c_index:.3f}" if not np.isnan(c_index) else "—"
+    _merge(ws, 6, 2, 6,
+           f"Model summary: N={n_patients}  |  Events={n_events}  |  C-index={c_index_text}",
+           font=_font(size=9, bold=True, color=C_DARK_GRAY),
+           fill=_fill(C_LIGHT_GRAY),
+           align=_align("left", "center", indent=1),
+           border=_thin_border())
+
+    _row_h(ws, 8, 22)
+    for ci, header in enumerate(["Treatment Comparison", "HR (95% CI)", "p-value"], start=2):
+        _cell(ws, 8, ci, header,
+              font=_font(size=10, bold=True, color=C_WHITE),
+              fill=_fill(C_BLUE),
+              align=_align("center", "center"),
+              border=_thin_border())
+
+    hr_ci = f"{tx_hr['HR']:.3f} ({tx_hr['HR_lower']:.3f}, {tx_hr['HR_upper']:.3f})"
+    p_val = tx_hr["p_value"]
+    p_str = "<0.001" if p_val < 0.001 else f"{p_val:.4f}"
+
+    _row_h(ws, 9, 20)
+    _cell(ws, 9, 2, "Continuation vs Fixed-Duration",
+          font=_font(size=10, bold=True, color=C_NAVY),
+          fill=_fill(C_LIGHT_BLUE),
+          align=_align("left", "center", indent=1),
+          border=_thin_border())
+    _cell(ws, 9, 3, hr_ci,
+          font=_font(size=10, bold=True, color=C_NAVY),
+          fill=_fill(C_LIGHT_BLUE),
+          align=_align("center", "center"),
+          border=_thin_border())
+    _cell(ws, 9, 4, p_str,
+          font=_font(size=10, bold=True, color=C_NAVY),
+          fill=_fill(C_LIGHT_BLUE),
+          align=_align("center", "center"),
+          border=_thin_border())
+
+    _row_h(ws, 11, 18)
+    _merge(ws, 11, 2, 6,
+           "Interpretation: HR <1 favours Continuation; HR >1 favours Fixed-Duration.",
+           font=_font(size=9, italic=True, color=C_DARK_GRAY),
+           align=_align("left", "center", indent=1))
+
+    _row_h(ws, 13, 20)
+    _merge(ws, 13, 2, 6, "Covariates Used in the Adjusted Model",
+           font=_font(size=10, bold=True, color=C_WHITE),
+           fill=_fill(C_BLUE),
+           align=_align("left", "center", indent=1))
+
+    display_rows = [
+        ("Age", "Continuous"),
+        ("Race", "Categorical"),
+        ("ECOG", "<=1, 2+, Unknown"),
+        ("PD-L1", "<1%/Negative, 1-49%, >=50%, Unknown"),
+        ("Histology", "Squamous, Non-Squamous, Unknown"),
+        ("Treatment type", "With Chemo, Without Chemo"),
+    ]
+    _row_h(ws, 14, 22)
+    _cell(ws, 14, 2, "Covariate",
+          font=_font(size=10, bold=True, color=C_WHITE),
+          fill=_fill(C_NAVY),
+          align=_align("left", "center", indent=1),
+          border=_thin_border())
+    _cell(ws, 14, 3, "Coding",
+          font=_font(size=10, bold=True, color=C_WHITE),
+          fill=_fill(C_NAVY),
+          align=_align("left", "center", indent=1),
+          border=_thin_border())
+    ws.merge_cells(start_row=14, start_column=3, end_row=14, end_column=6)
+
+    for i, (label, coding) in enumerate(display_rows, start=15):
+        fill = _fill(C_OFF_WHITE) if (i - 15) % 2 == 0 else _fill(C_WHITE)
+        _row_h(ws, i, 18)
+        _cell(ws, i, 2, label,
+              font=_font(size=10),
+              fill=fill,
+              align=_align("left", "center", indent=1),
+              border=_thin_border(bottom_only=True))
+        _cell(ws, i, 3, coding,
+              font=_font(size=10),
+              fill=fill,
+              align=_align("left", "center"),
+              border=_thin_border(bottom_only=True))
+        ws.merge_cells(start_row=i, start_column=3, end_row=i, end_column=6)
+
+    ws.freeze_panes = "B8"
 
 
 def _build_subgroup_sheet(wb, subgroup_df):
@@ -1169,7 +1318,7 @@ def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_d
     # Remove default sheet
     wb.remove(wb.active)
 
-    # Sheet order: Overview → Patient Flow → Table 1 → OS → Cox Primary → Cox Comparison → Subgroup → Landmark → Methodology
+    # Sheet order: Overview → Patient Flow → Table 1 → OS → Adjusted Cox → Subgroup → Landmark → Methodology
     print("[excel_report] Building Overview sheet...")
     _build_overview(wb, cohort_df, attrition, km_output)
 
@@ -1182,15 +1331,9 @@ def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_d
     print("[excel_report] Building Overall Survival sheet...")
     _build_os_analysis(wb, cohort_df, km_output, km_supporting)
 
-    # Cox primary model (all covariates) — always build if any cox results exist
     if cox_results:
-        print("[excel_report] Building Cox Primary Model sheet...")
-        _build_full_cox_sheet(wb, cox_results)
-
-    # Cox model comparison (treatment HR across adjustment levels)
-    if comparison_df is not None:
-        print("[excel_report] Building Cox Model Comparison sheet...")
-        _build_cox_comparison(wb, comparison_df, cox_results=cox_results)
+        print("[excel_report] Building Adjusted Cox Model sheet...")
+        _build_adjusted_cox_sheet(wb, cox_results)
 
     if subgroup_df is not None:
         print("[excel_report] Building Subgroup Analysis sheet...")
