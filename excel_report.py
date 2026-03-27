@@ -675,7 +675,8 @@ def _build_methodology(wb, cohort_df, attrition, km_output):
         (None, "    (squamous, non-squamous including adenocarcinoma, unknown), and treatment type", "body"),
         (None, "    (with or without chemotherapy)", "body"),
         (None, "  - Schoenfeld residuals test for proportional hazards (PH) assumption (global + per covariate)", "body"),
-        (None, "  - Subgroup analyses within 7 pre-specified subgroups with treatment-by-subgroup interaction testing", "body"),
+        (None, "  - Stratified treatment HRs reported within levels of age group, race, ECOG, PD-L1, histology,", "body"),
+        (None, "    and treatment type; age is grouped for this stratified display only", "body"),
         (None, "  - Landmark sensitivity: treatment HR re-estimated at 27, 29, and 32-month landmarks", "body"),
         ("Primary Cox Model", None, "section"),
         (None, "  Treatment comparison: Continuation vs Fixed-Duration", "body"),
@@ -1005,7 +1006,7 @@ def _build_adjusted_cox_sheet(wb, cox_results):
 
 
 def _build_subgroup_sheet(wb, subgroup_df):
-    """Sheet: Subgroup Analysis."""
+    """Sheet: treatment HR within covariate categories."""
     ws = wb.create_sheet("Subgroup Analysis")
     ws.sheet_properties.tabColor = "4393C3"
     _no_gridlines(ws)
@@ -1019,13 +1020,13 @@ def _build_subgroup_sheet(wb, subgroup_df):
 
     _row_h(ws, 1, 8)
     _row_h(ws, 2, 30)
-    _merge(ws, 2, 2, 10, "Subgroup Analysis — Treatment HR by Patient Characteristics",
+    _merge(ws, 2, 2, 10, "Treatment HR by Covariate Category",
            font=_font(size=14, bold=True, color=C_WHITE),
            fill=_fill(C_NAVY),
            align=_align("left", "center", indent=1))
     _row_h(ws, 3, 16)
     _merge(ws, 3, 2, 10,
-           "Unadjusted Cox within each subgroup. Interaction p-value tests heterogeneity.",
+           "Cox treatment HR for Continuation vs Fixed-Duration within each category level. Age is grouped here for display; the primary adjusted model keeps age continuous.",
            font=_font(size=10, italic=True, color=C_DARK_GRAY),
            align=_align("left", "center", indent=1))
     _row_h(ws, 4, 10)
@@ -1036,7 +1037,7 @@ def _build_subgroup_sheet(wb, subgroup_df):
         return
 
     display_cols = ["Variable", "Level", "N", "Events", "HR", "HR_lower",
-                    "HR_upper", "p_value", "interaction_p"]
+                    "HR_upper", "p_value"]
     cols = [c for c in display_cols if c in subgroup_df.columns]
 
     _row_h(ws, 5, 22)
@@ -1044,7 +1045,15 @@ def _build_subgroup_sheet(wb, subgroup_df):
         "Variable": "Variable", "Level": "Level", "N": "N",
         "Events": "Events", "HR": "HR", "HR_lower": "95% CI Lower",
         "HR_upper": "95% CI Upper", "p_value": "p-value",
-        "interaction_p": "Interaction p",
+    }
+    variable_display = {
+        "Overall": "Overall",
+        "age_group": "Age Group",
+        "race_group": "Race",
+        "ecog_binary": "ECOG",
+        "pdl1_cat": "PD-L1",
+        "histology_cat": "Histology",
+        "pembro_with_chemo": "Treatment Type",
     }
     for ci, col_name in enumerate(cols):
         _cell(ws, 5, 2 + ci, headers_display.get(col_name, col_name),
@@ -1062,9 +1071,11 @@ def _build_subgroup_sheet(wb, subgroup_df):
 
         for ci, col_name in enumerate(cols):
             val = row_data.get(col_name, "")
+            if col_name == "Variable":
+                val = variable_display.get(str(val), str(val))
             if isinstance(val, float) and not pd.isna(val):
                 val_str = f"{val:.3f}" if col_name in ["HR", "HR_lower", "HR_upper",
-                                                        "p_value", "interaction_p"] else f"{val:.0f}"
+                                                        "p_value"] else f"{val:.0f}"
             elif pd.isna(val):
                 val_str = ""
             else:

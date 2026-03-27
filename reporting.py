@@ -449,6 +449,8 @@ def save_methodology(cohort_df: pd.DataFrame, attrition: dict, km_output: dict) 
         "    PD-L1 category (<1%/negative, 1-49%, >=50%, unknown), histology category",
         "    (squamous, non-squamous including adenocarcinoma, unknown), and treatment type",
         "    (with or without chemotherapy)",
+        "  - Stratified treatment HRs within levels of age group, race, ECOG, PD-L1, histology,",
+        "    and treatment type (age grouped only for this stratified display)",
         "",
         "Software",
         "  Python (lifelines, pandas, matplotlib)",
@@ -625,7 +627,7 @@ def plot_full_cox_forest(
 def plot_subgroup_forest(
     subgroup_df,
     output_filename: str = "forest_subgroup_analysis.png",
-    title: str = "Subgroup Analysis — Treatment HR\n(Continuation vs Fixed-Duration)",
+    title: str = "Treatment HR by Covariate Category\n(Continuation vs Fixed-Duration)",
 ) -> Path:
     """Forest plot for subgroup analysis results."""
     ensure_output_dir()
@@ -652,12 +654,21 @@ def plot_subgroup_forest(
     ax.axvline(x=1.0, color="black", linestyle="--", linewidth=1, alpha=0.5)
     ax.set_yticks(y_pos)
 
+    variable_display = {
+        "age_group": "Age Group",
+        "race_group": "Race",
+        "ecog_binary": "ECOG",
+        "pdl1_cat": "PD-L1",
+        "histology_cat": "Histology",
+        "pembro_with_chemo": "Treatment Type",
+    }
     labels = []
     for _, row in subgroup_df.iterrows():
         if row["Variable"] == "Overall":
             labels.append("Overall")
         else:
-            labels.append(f"  {row['Variable']}: {row['Level']}")
+            var_label = variable_display.get(row["Variable"], row["Variable"])
+            labels.append(f"  {var_label}: {row['Level']}")
     ax.set_yticklabels(labels, fontsize=9)
 
     ax.set_xlabel("Hazard Ratio (95% CI)", fontsize=12, fontweight="bold")

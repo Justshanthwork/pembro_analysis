@@ -178,14 +178,15 @@ COX_MODEL_SPECS = {
 # ─────────────────────────────────────────────────────────────────────────────
 # 4b. SUBGROUP ANALYSES
 # ─────────────────────────────────────────────────────────────────────────────
+# For stratified treatment HR display, age is grouped for interpretability.
+# The primary adjusted Cox model still uses age_at_index as a continuous covariate.
 SUBGROUP_VARIABLES = [
-    ("gender",              ["M", "F"]),
-    ("histology_cat",       ["Squamous", "Non-Squamous"]),          # recoded per recommendation
-    ("pdl1_cat",            ["≥50%", "1-49%", "<1% / Negative"]),   # recoded per recommendation
-    ("pembro_with_chemo",   ["With Chemo", "Without Chemo"]),
-    ("ecog_binary",         ["≤1", "2+"]),                          # recoded per recommendation
-    ("brain_mets",          ["Yes", "No"]),
-    ("de_novo_vs_recurrent", ["De novo", "Recurrent"]),
+    ("age_group",          ["<65", "65-74", "≥75"]),
+    ("race_group",         ["White", "Black", "Asian", "Other / Unknown"]),
+    ("ecog_binary",        ["≤1", "2+", "Unknown"]),
+    ("pdl1_cat",           ["<1% / Negative", "1-49%", "≥50%", "Unknown"]),
+    ("histology_cat",      ["Squamous", "Non-Squamous", "Unknown"]),
+    ("pembro_with_chemo",  ["With Chemo", "Without Chemo", "Unknown"]),
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────

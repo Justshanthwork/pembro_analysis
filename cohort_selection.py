@@ -421,6 +421,25 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         cohort_data["age_dx"] +
         (cohort_data["landmark_date"] - cohort_data["diag_date"]).dt.days / 365.25
     ).round(1)
+    cohort_data["age_group"] = pd.cut(
+        cohort_data["age_at_index"],
+        bins=[-np.inf, 65, 75, np.inf],
+        labels=["<65", "65-74", "≥75"],
+        right=False,
+    ).astype(str)
+
+    def _race_group(val):
+        s = str(val).strip().lower()
+        if s in ("", "nan", "none", "unknown", "other"):
+            return "Other / Unknown"
+        if "white" in s:
+            return "White"
+        if "black" in s or "african american" in s:
+            return "Black"
+        if "asian" in s:
+            return "Asian"
+        return "Other / Unknown"
+    cohort_data["race_group"] = cohort_data["race"].apply(_race_group)
 
     # De novo vs recurrent
     cohort_data["de_novo_vs_recurrent"] = np.where(
@@ -586,7 +605,8 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         "mpi_id", "cohort", "landmark_date", "start_date",
         "effective_last_infusion", "months_on_tx", "n_infusions",
         "os_time_days", "os_time_months", "os_event",
-        "age_at_index", "gender", "race", "payer", "smoking_history",
+        "age_at_index", "age_group",
+        "gender", "race", "race_group", "payer", "smoking_history",
         "ecog_ps", "ecog_binary",
         "pdl1_status", "pdl1_cat",
         "histology", "histology_cat", "de_novo_vs_recurrent",
