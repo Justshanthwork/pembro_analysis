@@ -1099,8 +1099,8 @@ def _build_subgroup_sheet(wb, subgroup_df):
                    align=_align("left", "center", indent=1))
             img_row += 1
             img = XLImage(str(img_path))
-            img.width = 920
-            img.height = 640
+            img.width = 1180
+            img.height = 860
             ws.add_image(img, f"B{img_row}")
         except Exception:
             pass

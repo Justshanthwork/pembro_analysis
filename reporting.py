@@ -635,8 +635,8 @@ def plot_subgroup_forest(
     if subgroup_df.empty:
         return None
 
-    fig_height = max(8, len(subgroup_df) * 0.8 + 2.5)
-    fig, ax = plt.subplots(figsize=(16, fig_height))
+    fig_height = max(11, len(subgroup_df) * 1.0 + 4.0)
+    fig, ax = plt.subplots(figsize=(20, fig_height))
 
     y_pos = np.arange(len(subgroup_df))
 
@@ -681,20 +681,20 @@ def plot_subgroup_forest(
         else:
             var_label = variable_display.get(row["Variable"], row["Variable"])
             labels.append(f"  {var_label}: {row['Level']}")
-    ax.set_yticklabels(labels, fontsize=11)
+    ax.set_yticklabels(labels, fontsize=14, fontweight="bold")
 
-    ax.set_xlabel("Hazard Ratio (95% CI)", fontsize=13, fontweight="bold")
-    ax.set_title(title, fontsize=15, fontweight="bold", pad=14)
+    ax.set_xlabel("Hazard Ratio (95% CI)", fontsize=15, fontweight="bold")
+    ax.set_title(title, fontsize=18, fontweight="bold", pad=16)
     ax.set_xscale("log")
     ax.xaxis.set_major_formatter(ticker.FormatStrFormatter("%.2f"))
     ax.grid(True, axis="x", alpha=0.3, linestyle="--")
-    ax.tick_params(axis="x", labelsize=10)
+    ax.tick_params(axis="x", labelsize=12)
     ax.tick_params(axis="y", length=0)
 
     ax.text(0.02, 1.02, "Favors Continuation", transform=ax.transAxes,
-            fontsize=10, color="#2166AC", va="bottom")
+            fontsize=12, color="#2166AC", va="bottom", fontweight="bold")
     ax.text(0.98, 1.02, "Favors Fixed-Duration", transform=ax.transAxes,
-            fontsize=10, color="#B2182B", ha="right", va="bottom")
+            fontsize=12, color="#B2182B", ha="right", va="bottom", fontweight="bold")
 
     for i, (_, row) in enumerate(subgroup_df.iterrows()):
         text = f"{row['HR']:.2f} ({row['HR_lower']:.2f}–{row['HR_upper']:.2f})  n={int(row['N'])}"
@@ -703,13 +703,13 @@ def plot_subgroup_forest(
             y_pos[i],
             text,
             transform=ax.get_yaxis_transform(),
-            fontsize=9,
+            fontsize=11,
             va="center",
             fontfamily="monospace",
             fontweight="bold" if row.get("Variable") == "Overall" else "normal",
         )
 
-    fig.subplots_adjust(left=0.34, right=0.82, top=0.90, bottom=0.05)
+    fig.subplots_adjust(left=0.42, right=0.84, top=0.92, bottom=0.05)
     outpath = OUTPUT_DIR / output_filename
     fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
     plt.close(fig)
