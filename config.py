@@ -59,7 +59,8 @@ FILES = {
     "disease":          f"{FILE_PREFIX}DISEASE{FILE_SUFFIX}",
     "lot":              f"{FILE_PREFIX}LOT{FILE_SUFFIX}",
     "dose":             f"{FILE_PREFIX}DOSE{FILE_SUFFIX}",
-    "labs":             f"{FILE_PREFIX}LABS{FILE_SUFFIX}",
+    "labs":             f"{FILE_PREFIX}MEASUREMENT{FILE_SUFFIX}",  # table is MEASUREMENT, not LABS
+    "measurement":      f"{FILE_PREFIX}MEASUREMENT{FILE_SUFFIX}",
     "vitals":           f"{FILE_PREFIX}VITALS{FILE_SUFFIX}",
     "biomarker":        f"{FILE_PREFIX}BIOMARKER{FILE_SUFFIX}",
     "staginghistory":   f"{FILE_PREFIX}STAGINGHISTORY{FILE_SUFFIX}",
@@ -119,7 +120,21 @@ CHEMO_PROXIMITY_EXCLUSION_DAYS = 60  # 2 months
 # 4. COVARIATES for Cox model (evaluated at index date)
 # ─────────────────────────────────────────────────────────────────────────────
 
-# Core covariates (from demographics, disease, biomarker, metastases, LOT)
+# ── Recommended adjusted model (per collaborator feedback) ────────────────────
+# Covariates: age (continuous), race, ECOG (≤1 vs 2+),
+#             PD-L1 (<1%/Neg, 1-49%, ≥50%, Unknown),
+#             histology (Squamous, Non-Squamous, Unknown),
+#             treatment type (with/without chemo)
+COVARIATES_ADJUSTED = [
+    "age_at_index",      # continuous
+    "race",              # categorical
+    "ecog_binary",       # ≤1 vs 2+
+    "pdl1_cat",          # <1%/Negative | 1-49% | ≥50% | Unknown
+    "histology_cat",     # Squamous | Non-Squamous | Unknown
+    "pembro_with_chemo", # With Chemo | Monotherapy
+]
+
+# Core covariates (broader set for sensitivity / full model)
 COVARIATES_CORE = [
     "age_at_index",
     "gender",
@@ -156,23 +171,23 @@ COVARIATES_MEDICATIONS = [
 COVARIATES = COVARIATES_CORE + COVARIATES_COMORBIDITIES + COVARIATES_MEDICATIONS
 
 # Covariate sets for multiple Cox models
+# "adjusted" = primary recommended model; others for sensitivity
 COX_MODEL_SPECS = {
     "unadjusted":  [],
-    "minimal":     ["age_at_index", "gender"],
-    "clinical":    COVARIATES_CORE,
-    "full":        COVARIATES,
+    "adjusted":    COVARIATES_ADJUSTED,   # PRIMARY — per collaborator recommendation
+    "full":        COVARIATES,            # sensitivity — all available covariates
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 4b. SUBGROUP ANALYSES
 # ─────────────────────────────────────────────────────────────────────────────
 SUBGROUP_VARIABLES = [
-    ("gender", ["M", "F"]),
-    ("histology", ["Adenocarcinoma", "Squamous Cell Carcinoma"]),
-    ("pdl1_status", ["Positive (TPS ≥50%)", "Positive (TPS 1-49%)", "Negative (TPS <1%)"]),
-    ("pembro_with_chemo", ["With Chemo", "Monotherapy"]),
-    ("ecog_ps", ["0", "1", "2"]),
-    ("brain_mets", ["Yes", "No"]),
+    ("gender",              ["M", "F"]),
+    ("histology_cat",       ["Squamous", "Non-Squamous"]),          # recoded per recommendation
+    ("pdl1_cat",            ["≥50%", "1-49%", "<1% / Negative"]),   # recoded per recommendation
+    ("pembro_with_chemo",   ["With Chemo", "Monotherapy"]),
+    ("ecog_binary",         ["≤1", "2+"]),                          # recoded per recommendation
+    ("brain_mets",          ["Yes", "No"]),
     ("de_novo_vs_recurrent", ["De novo", "Recurrent"]),
 ]
 

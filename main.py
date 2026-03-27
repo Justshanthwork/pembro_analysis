@@ -52,7 +52,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from config import (
     OUTPUT_DIR, FILES,
-    COX_MODEL_SPECS, COVARIATES,
+    COX_MODEL_SPECS, COVARIATES, COVARIATES_ADJUSTED,
     SUBGROUP_VARIABLES, LANDMARK_SENSITIVITY_MONTHS,
     USE_LASSO_SELECTION, LASSO_ALPHA_RANGE,
 )
@@ -181,8 +181,8 @@ def main():
     # ── 6. Schoenfeld Residuals — PH Assumption ──────────────────────────
     print("\n[6/8] Testing proportional hazards assumption...")
 
-    # Use the "full" model covariates for PH testing
-    ph_covariates = COX_MODEL_SPECS.get("full", COVARIATES)
+    # Use the recommended adjusted model covariates for PH testing
+    ph_covariates = COX_MODEL_SPECS.get("adjusted", COVARIATES_ADJUSTED)
     ph_result = test_proportional_hazards(cohort_df, ph_covariates)
     print_ph_test(ph_result)
 
@@ -194,8 +194,8 @@ def main():
     # ── 8. Landmark Sensitivity ───────────────────────────────────────────
     print("\n[8/8] Running landmark sensitivity analysis...")
 
-    # Use clinical model covariates for sensitivity (faster, more stable)
-    sensitivity_covariates = COX_MODEL_SPECS.get("clinical", COVARIATES[:11])
+    # Use recommended adjusted model covariates for landmark sensitivity
+    sensitivity_covariates = COVARIATES_ADJUSTED
     landmark_df = run_landmark_sensitivity(
         tables, select_cohort, LANDMARK_SENSITIVITY_MONTHS,
         sensitivity_covariates,

@@ -393,6 +393,17 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     disease_info = disease[["mpi_id", "histology", "metastatic_date", "diag_date"]].drop_duplicates("mpi_id")
     cohort_data = cohort_data.merge(disease_info, on="mpi_id", how="left")
 
+    # Histology 3-group recoding per collaborator recommendation
+    # (Squamous | Non-Squamous [incl. adenocarcinoma] | Unknown)
+    def _histology_cat(val):
+        s = str(val).strip().lower()
+        if s in ("nan", "none", "", "unknown", "not specified", "nos"):
+            return "Unknown"
+        if "squamous" in s:
+            return "Squamous"
+        return "Non-Squamous"   # adenocarcinoma + large cell + NSCLC NOS + other
+    cohort_data["histology_cat"] = cohort_data["histology"].apply(_histology_cat)
+
     demo_cov = demo[["mpi_id", "age_dx", "gender", "race", "payer", "smoking_history"]].drop_duplicates("mpi_id")
     cohort_data = cohort_data.merge(demo_cov, on="mpi_id", how="left")
 
@@ -470,6 +481,16 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
     else:
         cohort_data["ecog_ps"] = "Unknown"
 
+    # ECOG binary grouping per collaborator recommendation (≤1 vs 2+)
+    def _ecog_binary(val):
+        s = str(val).strip()
+        try:
+            n = int(float(s))
+            return "≤1" if n <= 1 else "2+"
+        except (ValueError, TypeError):
+            return "Unknown"
+    cohort_data["ecog_binary"] = cohort_data["ecog_ps"].apply(_ecog_binary)
+
     # PD-L1 status
     if not biomarker.empty:
         pdl1 = biomarker[biomarker["biomarker_name"].str.upper().str.contains("PD-L1", na=False)].copy()
@@ -483,6 +504,31 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
             cohort_data["pdl1_status"] = "Unknown"
     else:
         cohort_data["pdl1_status"] = "Unknown"
+
+    # PD-L1 4-tier recoding per collaborator recommendation
+    # (<1%/Negative | 1-49% | ≥50% | Unknown)
+    def _pdl1_cat(val):
+        s = str(val).strip().lower()
+        # Already-mapped text from existing pipeline
+        if "≥50" in s or "50%" in s or "tps ≥50" in s or "high" == s:
+            return "≥50%"
+        if "1-49" in s or "tps 1-49" in s or "intermediate" == s:
+            return "1-49%"
+        if "<1" in s or "negative" in s or "tps <1" in s or s in ("0", "no"):
+            return "<1% / Negative"
+        # Numeric raw values
+        try:
+            n = float(s.replace("%", "").strip())
+            if n >= 50:
+                return "≥50%"
+            if n >= 1:
+                return "1-49%"
+            return "<1% / Negative"
+        except (ValueError, TypeError):
+            pass
+        return "Unknown"
+
+    cohort_data["pdl1_cat"] = cohort_data["pdl1_status"].apply(_pdl1_cat)
 
     # Brain metastases
     if not metastases.empty:
@@ -509,7 +555,9 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         "effective_last_infusion", "months_on_tx", "n_infusions",
         "os_time_days", "os_time_months", "os_event",
         "age_at_index", "gender", "race", "payer", "smoking_history",
-        "ecog_ps", "pdl1_status", "histology", "de_novo_vs_recurrent",
+        "ecog_ps", "ecog_binary",
+        "pdl1_status", "pdl1_cat",
+        "histology", "histology_cat", "de_novo_vs_recurrent",
         "brain_mets", "pembro_with_chemo", "regimen",
         # Comorbidity covariates
         "diabetes", "chronic_respiratory_disease", "severe_cardiac",

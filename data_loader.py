@@ -25,9 +25,9 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime, timezone
 from config import (
-    SNOWFLAKE_CONFIG, CACHE_DIR, CACHE_MAX_AGE_DAYS,
+    SNOWFLAKE_CONFIG, DATA_DIR, CACHE_DIR, CACHE_MAX_AGE_DAYS,
     DIAGNOSIS_START, DIAGNOSIS_END,
-    CHEMO_AGENTS,
+    CHEMO_AGENTS, FILES,
 )
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -38,17 +38,22 @@ _SFX   = "_20260310_190335"
 _DB    = SNOWFLAKE_CONFIG["database"]
 _SCH   = SNOWFLAKE_CONFIG["schema"]
 
-SNOWFLAKE_TABLES = {
-    k: f'"{_DB}"."{_SCH}"."{_PFX}{k.upper()}{_SFX}"'
-    for k in [
-        "demographics", "disease", "lot", "dose", "labs", "vitals",
-        "biomarker", "staginghistory", "lotresponse", "metastases",
-        "comorbidities", "procedure", "biopsy", "riskscores",
-        "diseasehistory", "medicalcondition", "drugmodifications",
-        "visithistory", "futurevisits", "cohort", "patientcuration",
-        "regimen", "rsi", "controltable", "division", "remappedmpiid",
-    ]
+# "labs" maps to the MEASUREMENT table — the LABS table does not exist in Snowflake
+_SNOWFLAKE_KEY_OVERRIDE = {
+    "labs": "MEASUREMENT",   # actual Snowflake table suffix is MEASUREMENT, not LABS
 }
+
+SNOWFLAKE_TABLES = {}
+for k in [
+    "demographics", "disease", "lot", "dose", "labs", "vitals",
+    "biomarker", "staginghistory", "lotresponse", "metastases",
+    "comorbidities", "procedure", "biopsy", "riskscores",
+    "diseasehistory", "medicalcondition", "drugmodifications",
+    "visithistory", "futurevisits", "cohort", "patientcuration",
+    "regimen", "rsi", "controltable", "division", "remappedmpiid",
+]:
+    suffix = _SNOWFLAKE_KEY_OVERRIDE.get(k, k.upper())
+    SNOWFLAKE_TABLES[k] = f'"{_DB}"."{_SCH}"."{_PFX}{suffix}{_SFX}"'
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Per-table push-down WHERE clauses
@@ -94,7 +99,7 @@ TABLE_FILTERS: dict[str, str] = {
 
     # Only ECOG measurements — confirmed working via vitals
     "vitals": "UPPER(TEST_NAME) LIKE '%ECOG%'",
-    "labs":   None,   # pull all — column name unknown, will discover on next pull
+    "labs":   None,   # MEASUREMENT table — pull all rows (no filter)
 
     # Only brain metastases
     "metastases": "LOWER(METASTATIC_SITE) LIKE '%brain%'",
@@ -158,6 +163,44 @@ def _load_cache(name: str) -> pd.DataFrame:
     df = pd.read_parquet(_cache_path(name))
     df = _parse_dates(df)
     return df
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CSV fallback  (reads directly from DATA_DIR when Snowflake / cache unavailable)
+# ─────────────────────────────────────────────────────────────────────────────
+# "labs" uses the MEASUREMENT CSV — override the FILES key lookup
+_CSV_KEY_OVERRIDE = {
+    "labs": "measurement",
+}
+
+def _read_csv_fallback(name: str) -> pd.DataFrame | None:
+    """
+    Try to read table `name` from its CSV file in DATA_DIR.
+    Returns DataFrame on success, None if file not found.
+    """
+    csv_key = _CSV_KEY_OVERRIDE.get(name, name)
+    filename = FILES.get(csv_key)
+    if filename is None:
+        # Build filename from the standard pattern using overridden suffix
+        suffix = _SNOWFLAKE_KEY_OVERRIDE.get(name, name.upper())
+        filename = f"{_PFX}{suffix}{_SFX}.csv"
+
+    fpath = Path(DATA_DIR) / filename
+    if not fpath.exists():
+        return None
+
+    print(f"  ↳ {name:20s}  reading CSV fallback: {fpath.name}")
+    for enc in ["utf-8", "latin-1", "cp1252"]:
+        try:
+            df = pd.read_csv(fpath, low_memory=False, encoding=enc)
+            df.columns = df.columns.str.lower().str.strip()
+            df = _parse_dates(df)
+            _save_cache(name, df)
+            print(f"  ✓ {name:20s}  {len(df):>8,} rows  [CSV→cache]")
+            return df
+        except Exception:
+            continue
+    return None
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,17 +291,28 @@ def load_tables(
     else:
         print(f"[data_loader] All {len(table_names)} tables loaded from cache (no Snowflake needed)")
 
-    # Load everything from cache
+    # Load everything from cache (falling back to CSV if cache missing)
     tables: dict[str, pd.DataFrame] = {}
     for name in table_names:
         p = _cache_path(name)
         if p.exists():
             df = _load_cache(name)
-            tables[name] = df
+            if len(df) == 0:
+                # Cache exists but is empty — likely a failed prior pull; try CSV
+                print(f"  ⚠ {name:20s}  cache has 0 rows — trying CSV fallback...")
+                csv_df = _read_csv_fallback(name)
+                if csv_df is not None and len(csv_df) > 0:
+                    df = csv_df
             src = "cache" if name not in to_pull else "Snowflake→cache"
+            tables[name] = df
             print(f"  ✓ {name:20s}  {len(df):>8,} rows  [{src}]")
         else:
-            print(f"  ✗ {name:20s}  not available (Snowflake pull may have failed)")
+            # No cache at all — try CSV before giving up
+            csv_df = _read_csv_fallback(name)
+            if csv_df is not None:
+                tables[name] = csv_df
+            else:
+                print(f"  ✗ {name:20s}  not available (Snowflake failed, no CSV found)")
 
     return tables
 
