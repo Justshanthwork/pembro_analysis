@@ -26,6 +26,7 @@ from config import (
     FIXED_DURATION_LOWER_MONTHS, FIXED_DURATION_UPPER_MONTHS,
     CONTINUATION_LOWER_MONTHS,
     MAX_INFUSION_GAP_DAYS, CHEMO_PROXIMITY_EXCLUSION_DAYS,
+    COVARIATES_ADJUSTED,
 )
 
 # ── Colour palette ────────────────────────────────────────────────────────────
@@ -107,6 +108,20 @@ def _apply_all_borders(ws, r1, c1, r2, c2):
 
 def _no_gridlines(ws):
     ws.sheet_view.showGridLines = False
+
+
+def _format_adjusted_covariates(covariates):
+    """Convert adjusted model covariate names into presentation-friendly labels."""
+    label_map = {
+        "age_at_index": "age",
+        "race": "race",
+        "ecog_binary": "ECOG",
+        "pdl1_cat": "PD-L1",
+        "histology_cat": "histology",
+        "pembro_with_chemo": "treatment type",
+    }
+    labels = [label_map.get(cov, cov.replace("_", " ")) for cov in covariates]
+    return ", ".join(labels)
 
 
 # ── Sheet builders ────────────────────────────────────────────────────────────
@@ -711,7 +726,7 @@ def _build_methodology(wb, cohort_df, attrition, km_output):
 
 # ── Main entry point ──────────────────────────────────────────────────────────
 
-def _build_cox_comparison(wb, comparison_df):
+def _build_cox_comparison(wb, comparison_df, cox_results=None):
     """Sheet: Cox Model Comparison — treatment HR across model specifications."""
     ws = wb.create_sheet("Cox Model Comparison")
     ws.sheet_properties.tabColor = "B2182B"
@@ -737,16 +752,74 @@ def _build_cox_comparison(wb, comparison_df):
            align=_align("left", "center", indent=1))
     _row_h(ws, 4, 10)
 
+    current_row = 5
+
+    adjusted_result = None
+    if cox_results and "adjusted" in cox_results:
+        candidate = cox_results["adjusted"]
+        if candidate and "error" not in candidate and "treatment_hr" in candidate:
+            adjusted_result = candidate
+
+    if adjusted_result is not None:
+        covariates = adjusted_result.get("covariates") or COVARIATES_ADJUSTED
+        tx_hr = adjusted_result["treatment_hr"]
+        n_patients = adjusted_result.get("n_patients", "—")
+
+        _row_h(ws, current_row, 18)
+        _cell(ws, current_row, 2,
+              f"Adjusted for {_format_adjusted_covariates(covariates)}",
+              font=_font(size=10, bold=True, color=C_DARK_GRAY),
+              align=_align("left", "center", indent=1))
+        _cell(ws, current_row, 3, f"n = {n_patients}",
+              font=_font(size=10, bold=True, color=C_DARK_GRAY),
+              align=_align("left", "center"))
+        current_row += 1
+
+        _row_h(ws, current_row, 22)
+        featured_headers = ["Treatment Comparison", "HR (95% CI)", "p-value"]
+        for ci, col_name in enumerate(featured_headers):
+            _cell(ws, current_row, 2 + ci, col_name,
+                  font=_font(size=10, bold=True, color=C_WHITE),
+                  fill=_fill(C_BLUE),
+                  align=_align("center", "center"),
+                  border=_thin_border())
+        current_row += 1
+
+        hr_ci = (
+            f"{tx_hr['HR']:.3f} ({tx_hr['HR_lower']:.3f}, {tx_hr['HR_upper']:.3f})"
+        )
+        p_val = tx_hr["p_value"]
+        p_str = "<0.001" if p_val < 0.001 else f"{p_val:.4f}"
+
+        _row_h(ws, current_row, 20)
+        featured_fill = _fill(C_LIGHT_BLUE)
+        _cell(ws, current_row, 2, "Continuation vs Fixed-Duration",
+              font=_font(size=10, bold=True, color=C_NAVY),
+              fill=featured_fill,
+              align=_align("left", "center", indent=1),
+              border=_thin_border())
+        _cell(ws, current_row, 3, hr_ci,
+              font=_font(size=10, bold=True, color=C_NAVY),
+              fill=featured_fill,
+              align=_align("center", "center"),
+              border=_thin_border())
+        _cell(ws, current_row, 4, p_str,
+              font=_font(size=10, bold=True, color=C_NAVY),
+              fill=featured_fill,
+              align=_align("center", "center"),
+              border=_thin_border())
+        current_row += 2
+
     if comparison_df is None or comparison_df.empty:
-        _cell(ws, 5, 2, "No Cox models available.",
+        _cell(ws, current_row, 2, "No Cox models available.",
               font=_font(size=10, italic=True, color=C_DARK_GRAY))
         return
 
     # Column headers
     cols = list(comparison_df.columns)
-    _row_h(ws, 5, 22)
+    _row_h(ws, current_row, 22)
     for ci, col_name in enumerate(cols):
-        _cell(ws, 5, 2 + ci, col_name,
+        _cell(ws, current_row, 2 + ci, col_name,
               font=_font(size=10, bold=True, color=C_WHITE),
               fill=_fill(C_NAVY),
               align=_align("center", "center"),
@@ -754,7 +827,7 @@ def _build_cox_comparison(wb, comparison_df):
 
     # Data rows
     for ri, (_, row_data) in enumerate(comparison_df.iterrows()):
-        r = 6 + ri
+        r = current_row + 1 + ri
         _row_h(ws, r, 18)
         fill = _fill(C_OFF_WHITE) if ri % 2 == 0 else _fill(C_WHITE)
         for ci, col_name in enumerate(cols):
@@ -769,7 +842,7 @@ def _build_cox_comparison(wb, comparison_df):
 
     # Embed forest plot image
     img_path = Path(OUTPUT_DIR) / "forest_model_comparison.png"
-    img_row = 6 + len(comparison_df) + 2
+    img_row = current_row + 1 + len(comparison_df) + 2
     if img_path.exists():
         try:
             img = XLImage(str(img_path))
@@ -779,7 +852,7 @@ def _build_cox_comparison(wb, comparison_df):
         except Exception:
             pass
 
-    ws.freeze_panes = "B6"
+    ws.freeze_panes = f"B{current_row + 1}"
 
 
 def _build_subgroup_sheet(wb, subgroup_df):
@@ -1117,7 +1190,7 @@ def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_d
     # Cox model comparison (treatment HR across adjustment levels)
     if comparison_df is not None:
         print("[excel_report] Building Cox Model Comparison sheet...")
-        _build_cox_comparison(wb, comparison_df)
+        _build_cox_comparison(wb, comparison_df, cox_results=cox_results)
 
     if subgroup_df is not None:
         print("[excel_report] Building Subgroup Analysis sheet...")
