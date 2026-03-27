@@ -1092,9 +1092,15 @@ def _build_subgroup_sheet(wb, subgroup_df):
     img_row = 6 + len(subgroup_df) + 2
     if img_path.exists():
         try:
+            _row_h(ws, img_row, 18)
+            _merge(ws, img_row, 2, 10, "Forest Plot View",
+                   font=_font(size=10, bold=True, color=C_WHITE),
+                   fill=_fill(C_BLUE),
+                   align=_align("left", "center", indent=1))
+            img_row += 1
             img = XLImage(str(img_path))
-            img.width = 680
-            img.height = 400
+            img.width = 920
+            img.height = 640
             ws.add_image(img, f"B{img_row}")
         except Exception:
             pass

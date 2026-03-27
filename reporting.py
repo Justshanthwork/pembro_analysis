@@ -635,9 +635,21 @@ def plot_subgroup_forest(
     if subgroup_df.empty:
         return None
 
-    fig, ax = plt.subplots(figsize=(12, max(4, len(subgroup_df) * 0.6 + 2)))
+    fig_height = max(8, len(subgroup_df) * 0.8 + 2.5)
+    fig, ax = plt.subplots(figsize=(16, fig_height))
 
     y_pos = np.arange(len(subgroup_df))
+
+    lower_vals = subgroup_df["HR_lower"].astype(float).values
+    upper_vals = subgroup_df["HR_upper"].astype(float).values
+    positive_lower = lower_vals[lower_vals > 0]
+    x_min = max(0.35, positive_lower.min() * 0.85) if len(positive_lower) else 0.5
+    x_max = max(2.2, upper_vals.max() * 1.20) if len(upper_vals) else 2.0
+    ax.set_xlim(x_min, x_max)
+
+    for i in range(len(subgroup_df)):
+        shade = "#F7F9FC" if i % 2 == 0 else "#FFFFFF"
+        ax.axhspan(i - 0.5, i + 0.5, color=shade, zorder=0)
 
     for i, (_, row) in enumerate(subgroup_df.iterrows()):
         is_overall = row.get("Variable") == "Overall"
@@ -669,21 +681,35 @@ def plot_subgroup_forest(
         else:
             var_label = variable_display.get(row["Variable"], row["Variable"])
             labels.append(f"  {var_label}: {row['Level']}")
-    ax.set_yticklabels(labels, fontsize=9)
+    ax.set_yticklabels(labels, fontsize=11)
 
-    ax.set_xlabel("Hazard Ratio (95% CI)", fontsize=12, fontweight="bold")
-    ax.set_title(title, fontsize=13, fontweight="bold")
+    ax.set_xlabel("Hazard Ratio (95% CI)", fontsize=13, fontweight="bold")
+    ax.set_title(title, fontsize=15, fontweight="bold", pad=14)
     ax.set_xscale("log")
     ax.xaxis.set_major_formatter(ticker.FormatStrFormatter("%.2f"))
     ax.grid(True, axis="x", alpha=0.3, linestyle="--")
+    ax.tick_params(axis="x", labelsize=10)
+    ax.tick_params(axis="y", length=0)
+
+    ax.text(0.02, 1.02, "Favors Continuation", transform=ax.transAxes,
+            fontsize=10, color="#2166AC", va="bottom")
+    ax.text(0.98, 1.02, "Favors Fixed-Duration", transform=ax.transAxes,
+            fontsize=10, color="#B2182B", ha="right", va="bottom")
 
     for i, (_, row) in enumerate(subgroup_df.iterrows()):
-        int_p = f", int_p={row['interaction_p']:.3f}" if pd.notna(row.get("interaction_p")) else ""
-        text = f"HR {row['HR']:.2f} ({row['HR_lower']:.2f}–{row['HR_upper']:.2f}) N={row['N']}{int_p}"
-        ax.text(ax.get_xlim()[1] * 1.02, y_pos[i], text,
-                fontsize=7, va="center", fontfamily="monospace")
+        text = f"{row['HR']:.2f} ({row['HR_lower']:.2f}–{row['HR_upper']:.2f})  n={int(row['N'])}"
+        ax.text(
+            1.02,
+            y_pos[i],
+            text,
+            transform=ax.get_yaxis_transform(),
+            fontsize=9,
+            va="center",
+            fontfamily="monospace",
+            fontweight="bold" if row.get("Variable") == "Overall" else "normal",
+        )
 
-    plt.tight_layout()
+    fig.subplots_adjust(left=0.34, right=0.82, top=0.90, bottom=0.05)
     outpath = OUTPUT_DIR / output_filename
     fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
     plt.close(fig)
