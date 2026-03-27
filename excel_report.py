@@ -647,13 +647,17 @@ def _build_methodology(wb, cohort_df, attrition, km_output):
         (None, "  - Log-rank test for between-group comparison (two-sided, alpha = 0.05)", "body"),
         (None, f"  - Observed log-rank p-value: {p_val}", "body"),
         (None, "  - Median follow-up estimated using reverse Kaplan-Meier (Schemper & Smith method)", "body"),
-        (None, "  - Multivariable Cox proportional hazards model (deferred — covariates TBD after Table 1 review)", "body"),
-        ("Covariates to be Evaluated (Cox Model, Deferred)", None, "section"),
-        (None,
-         "Age at landmark, sex, race, payer, smoking history, ECOG performance status, PD-L1 status, "
-         "histology, de novo vs. recurrent metastatic disease, presence of brain metastases, "
-         "pembrolizumab with or without chemotherapy.",
-         "body"),
+        (None, "  - Multivariable Cox proportional hazards (CoxPH) models with sequential confounder adjustment", "body"),
+        (None, "  - Schoenfeld residuals test for proportional hazards (PH) assumption (global + per covariate)", "body"),
+        (None, "  - Subgroup analyses within 7 pre-specified subgroups with treatment-by-subgroup interaction testing", "body"),
+        (None, "  - Landmark sensitivity: treatment HR re-estimated at 27, 29, and 32-month landmarks", "body"),
+        (None, "  - LASSO-penalized Cox (L1, cross-validated alpha) for data-driven covariate selection", "body"),
+        ("Cox Model Hierarchy", None, "section"),
+        (None, "  Model 1 (Unadjusted): Treatment indicator only", "body"),
+        (None, "  Model 2 (Minimal): + Age at landmark, sex", "body"),
+        (None, "  Model 3 (Clinical): + ECOG, PD-L1, histology, brain mets, de novo vs recurrent, pembro ± chemo, smoking", "body"),
+        (None, "  Model 4 (Full): Model 3 + comorbidities (diabetes, respiratory, cardiac, kidney) + medication proxies", "body"),
+        (None, "  Model 5 (LASSO): LASSO-selected subset of Model 4 covariates (data-driven)", "body"),
         ("Software", None, "section"),
         (None, "Python 3.x with lifelines, pandas, matplotlib, openpyxl", "body"),
         ("References", None, "section"),
@@ -865,6 +869,141 @@ def _build_subgroup_sheet(wb, subgroup_df):
     ws.freeze_panes = "B6"
 
 
+def _build_full_cox_sheet(wb, cox_results):
+    """Sheet: Cox Primary Model — full covariate table + forest plot."""
+    ws = wb.create_sheet("Cox Primary Model")
+    ws.sheet_properties.tabColor = "B2182B"
+    _no_gridlines(ws)
+
+    _col(ws, 1, 3)
+    _col(ws, 2, 36)   # Covariate
+    _col(ws, 3, 14)   # HR
+    _col(ws, 4, 16)   # 95% CI
+    _col(ws, 5, 12)   # p-value
+    _col(ws, 6, 3)
+
+    _row_h(ws, 1, 8)
+    _row_h(ws, 2, 30)
+    _merge(ws, 2, 2, 5, "Cox Proportional Hazards — Primary Model (All Covariates)",
+           font=_font(size=14, bold=True, color=C_WHITE),
+           fill=_fill(C_NAVY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 3, 16)
+    _merge(ws, 3, 2, 5,
+           "Fully adjusted Cox model. Reference: Continuation vs Fixed-Duration. HR <1 favours Continuation.",
+           font=_font(size=10, italic=True, color=C_DARK_GRAY),
+           align=_align("left", "center", indent=1))
+    _row_h(ws, 4, 10)
+
+    # Pick primary model: prefer "full", fallback to "clinical"
+    primary_result = None
+    primary_name = None
+    for key in ["full", "clinical", "minimal", "unadjusted"]:
+        if cox_results and key in cox_results and "error" not in cox_results[key]:
+            primary_result = cox_results[key]
+            primary_name = key.title()
+            break
+
+    if primary_result is None:
+        _merge(ws, 5, 2, 5, "No Cox model results available.",
+               font=_font(size=10, italic=True, color=C_DARK_GRAY),
+               align=_align("left", "center", indent=1))
+        return
+
+    summary_df = primary_result["summary"].copy()
+
+    # Annotation row
+    _row_h(ws, 4, 16)
+    concordance = primary_result.get("concordance", float("nan"))
+    n_pts = primary_result.get("n_patients", "?")
+    n_evt = primary_result.get("n_events", "?")
+    _merge(ws, 4, 2, 5,
+           f"Model: {primary_name}  |  N={n_pts}  |  Events={n_evt}  |  C-index={concordance:.3f}",
+           font=_font(size=9, bold=True, color=C_DARK_GRAY),
+           fill=_fill(C_LIGHT_GRAY),
+           align=_align("left", "center", indent=1))
+
+    # Column headers
+    _row_h(ws, 5, 22)
+    headers = [("Covariate", "left"), ("HR", "center"),
+               ("95% CI", "center"), ("p-value", "center")]
+    for ci, (hdr, aln) in enumerate(headers):
+        _cell(ws, 5, 2 + ci, hdr,
+              font=_font(size=10, bold=True, color=C_WHITE),
+              fill=_fill(C_NAVY),
+              align=_align(aln, "center", indent=1 if aln == "left" else 0),
+              border=_thin_border())
+
+    # Treatment row first (highlight it)
+    tx_row_idx = None
+    if "treatment_continuation" in summary_df.index:
+        tx_row_idx = list(summary_df.index).index("treatment_continuation")
+
+    for ri, (idx, row_data) in enumerate(summary_df.iterrows()):
+        r = 6 + ri
+        _row_h(ws, r, 18)
+        is_treatment = (idx == "treatment_continuation")
+
+        hr_val   = row_data.get("exp(coef)", float("nan"))
+        hr_lo    = row_data.get("exp(coef) lower 95%", float("nan"))
+        hr_hi    = row_data.get("exp(coef) upper 95%", float("nan"))
+        p_val    = row_data.get("p", float("nan"))
+
+        hr_str = f"{hr_val:.3f}" if not np.isnan(hr_val) else "—"
+        ci_str = (f"{hr_lo:.3f} – {hr_hi:.3f}"
+                  if not (np.isnan(hr_lo) or np.isnan(hr_hi)) else "—")
+        p_str  = (f"{p_val:.4f}" if not np.isnan(p_val) else "—")
+
+        label = "Continuation vs Fixed-Duration (Treatment)" if is_treatment else str(idx)
+
+        if is_treatment:
+            fill = _fill(C_LIGHT_BLUE)
+            fnt_lbl = _font(size=10, bold=True, color=C_NAVY)
+            fnt_val = _font(size=10, bold=True, color=C_NAVY)
+        elif ri % 2 == 0:
+            fill = _fill(C_OFF_WHITE)
+            fnt_lbl = fnt_val = _font(size=10)
+        else:
+            fill = _fill(C_WHITE)
+            fnt_lbl = fnt_val = _font(size=10)
+
+        _cell(ws, r, 2, label, font=fnt_lbl, fill=fill,
+              align=_align("left", "center", indent=1),
+              border=_thin_border(bottom_only=True))
+        _cell(ws, r, 3, hr_str, font=fnt_val, fill=fill,
+              align=_align("center", "center"),
+              border=_thin_border(bottom_only=True))
+        _cell(ws, r, 4, ci_str, font=fnt_val, fill=fill,
+              align=_align("center", "center"),
+              border=_thin_border(bottom_only=True))
+
+        # Highlight significant p-values
+        p_color = C_CONT if (not np.isnan(p_val) and p_val < 0.05) else "000000"
+        _cell(ws, r, 5, p_str,
+              font=_font(size=10, bold=(not np.isnan(p_val) and p_val < 0.05),
+                         color=p_color),
+              fill=fill,
+              align=_align("center", "center"),
+              border=_thin_border(bottom_only=True))
+
+    # Embed forest plot if it exists
+    img_row = 6 + len(summary_df) + 2
+    for fname in [f"forest_plot_full_cox.png", "forest_plot_clinical_cox.png",
+                  "forest_model_comparison.png"]:
+        img_path = Path(OUTPUT_DIR) / fname
+        if img_path.exists():
+            try:
+                img = XLImage(str(img_path))
+                img.width  = 640
+                img.height = 400
+                ws.add_image(img, f"B{img_row}")
+            except Exception:
+                pass
+            break
+
+    ws.freeze_panes = "B6"
+
+
 def _build_landmark_sheet(wb, landmark_df):
     """Sheet: Landmark Sensitivity Analysis."""
     ws = wb.create_sheet("Landmark Sensitivity")
@@ -957,6 +1096,7 @@ def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_d
     # Remove default sheet
     wb.remove(wb.active)
 
+    # Sheet order: Overview → Patient Flow → Table 1 → OS → Cox Primary → Cox Comparison → Subgroup → Landmark → Methodology
     print("[excel_report] Building Overview sheet...")
     _build_overview(wb, cohort_df, attrition, km_output)
 
@@ -969,7 +1109,12 @@ def create_excel_report(cohort_df, attrition, km_output, km_supporting, table1_d
     print("[excel_report] Building Overall Survival sheet...")
     _build_os_analysis(wb, cohort_df, km_output, km_supporting)
 
-    # Cox-related sheets
+    # Cox primary model (all covariates) — always build if any cox results exist
+    if cox_results:
+        print("[excel_report] Building Cox Primary Model sheet...")
+        _build_full_cox_sheet(wb, cox_results)
+
+    # Cox model comparison (treatment HR across adjustment levels)
     if comparison_df is not None:
         print("[excel_report] Building Cox Model Comparison sheet...")
         _build_cox_comparison(wb, comparison_df)
