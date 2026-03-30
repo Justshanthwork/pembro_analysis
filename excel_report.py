@@ -1,4 +1,4 @@
-"""
+ """
 excel_report.py — McKinsey-style Excel presentation workbook
 =============================================================
 Generates a publication/presentation-ready .xlsx file with:

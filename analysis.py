@@ -100,8 +100,8 @@ def median_confidence_interval(kmf: KaplanMeierFitter) -> tuple[float, float]:
             return np.nan
         return below.index[0]
 
-    lower_median = _find_median(ci[upper_col])   # upper CI → lower median
-    upper_median = _find_median(ci[lower_col])   # lower CI → upper median
+    lower_median = _find_median(ci[lower_col])   # lower survival CI → earlier crossing → lower median
+    upper_median = _find_median(ci[upper_col])   # upper survival CI → later crossing → upper median
     return (lower_median, upper_median)
 
 

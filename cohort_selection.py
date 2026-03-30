@@ -556,28 +556,31 @@ def select_cohort(tables: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict]:
         cohort_data["pdl1_status"] = "Unknown"
     cohort_data["pdl1_status"] = cohort_data["pdl1_status"].fillna("Unknown")
 
-    # PD-L1 4-tier recoding per collaborator recommendation
-    # (<1%/Negative | 1-49% | ≥50% | Unknown)
+    # PD-L1 binary categorisation (Positive / Negative / Unknown)
+    # Real-world data reports qualitative results; most records lack a numeric TPS score.
+    # High/Low/Intermediate are all subtypes of positive (TPS ≥1%).
     def _pdl1_cat(val):
         s = str(val).strip().lower()
-        # Already-mapped text from existing pipeline
-        if "≥50" in s or "50%" in s or "tps ≥50" in s or "high" == s:
-            return "≥50%"
-        if "1-49" in s or "tps 1-49" in s or "intermediate" == s:
-            return "1-49%"
-        if "<1" in s or "negative" in s or "tps <1" in s or s in ("0", "no"):
-            return "<1% / Negative"
-        # Numeric raw values
+        # Positive — includes any expression regardless of level
+        if s in ("positive", "high", "low", "intermediate") or \
+           "≥50" in s or "50%" in s or "tps ≥50" in s or \
+           "1-49" in s or "tps 1-49" in s or \
+           "high risk" == s or "low risk" == s or "intermediate risk" == s:
+            # high/low risk likely from non-TPS assay but still expression-positive
+            if s in ("high risk", "low risk", "intermediate risk"):
+                return "Unknown / Not reported"
+            return "Positive"
+        # Negative
+        if "negative" in s or "<1" in s or "tps <1" in s or s in ("0", "no"):
+            return "Negative"
+        # Numeric fallback
         try:
             n = float(s.replace("%", "").strip())
-            if n >= 50:
-                return "≥50%"
-            if n >= 1:
-                return "1-49%"
-            return "<1% / Negative"
+            return "Positive" if n >= 1 else "Negative"
         except (ValueError, TypeError):
             pass
-        return "Unknown"
+        # Not tested / failed / unknown
+        return "Unknown / Not reported"
 
     cohort_data["pdl1_cat"] = cohort_data["pdl1_status"].apply(_pdl1_cat)
 

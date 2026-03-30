@@ -129,17 +129,35 @@ def plot_km_curves(
         "Continuation": "#B2182B",     # red
     }
 
-    fig, ax = plt.subplots(figsize=(10, 7))
+    # Descriptive legend labels shown on the figure
+    legend_labels = {
+        "Continuation":   "Continued pembrolizumab (>26 months)",
+        "Fixed-Duration": "Fixed-duration pembrolizumab (22-26 months)",
+    }
 
-    # Plot each KM curve
+    # ── Layout: main plot (top) + at-risk table (bottom) ─────────────────
+    # Use explicit figure + axes positioning so we can size each section
+    # independently and avoid any overlap.
+    fig = plt.figure(figsize=(11, 9))
+
+    # Main KM axes: left=0.13, bottom=0.30, width=0.84, height=0.63
+    ax = fig.add_axes([0.13, 0.30, 0.84, 0.63])
+
+    # At-risk table axes: immediately below, same left/width, height=0.22
+    n_groups = len(km_results)
+    ax2 = fig.add_axes([0.13, 0.04, 0.84, min(0.22, 0.09 * n_groups + 0.06)])
+
+    # ── Plot KM curves with descriptive labels ────────────────────────────
     for grp_name, kmf in sorted(km_results.items()):
         color = colors.get(grp_name, "gray")
+        label = legend_labels.get(grp_name, grp_name)
         kmf.plot_survival_function(
             ax=ax,
             ci_show=True,
             color=color,
             linewidth=2,
             ci_alpha=0.15,
+            label=label,
         )
 
     ax.set_xlabel("Time from Landmark (months)", fontsize=12, fontweight="bold")
@@ -147,66 +165,83 @@ def plot_km_curves(
     ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
     ax.set_ylim(0, 1.05)
     ax.set_xlim(left=0)
-    ax.legend(fontsize=11, loc="lower left", frameon=True, framealpha=0.9)
     ax.grid(True, alpha=0.3, linestyle="--")
 
-    # Add log-rank p-value
+    # Legend: place in upper right to avoid overlapping the lower part of curves;
+    # use bbox_to_anchor to keep it fully inside the axes.
+    ax.legend(
+        fontsize=10, loc="upper right",
+        frameon=True, framealpha=0.9,
+        bbox_to_anchor=(1.0, 1.0),
+    )
+
+    # ── Log-rank p-value: top-left box ───────────────────────────────────
     if lr is not None:
         p_text = f"Log-rank p = {lr.p_value:.4f}" if lr.p_value >= 0.0001 else "Log-rank p < 0.0001"
         ax.text(
-            0.98, 0.95, p_text,
+            0.03, 0.08, p_text,
             transform=ax.transAxes, fontsize=11,
-            verticalalignment="top", horizontalalignment="right",
+            verticalalignment="bottom", horizontalalignment="left",
             bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="gray", alpha=0.8),
         )
 
-    # Add median OS annotations
+    # ── Median OS annotations: placed just above the at-risk table header,
+    #    in the lower-left of the main axes so they don't crowd the curves.
     summary = km_output["summary"]
-    y_pos = 0.85
+    y_pos = 0.22
     for _, row in summary.iterrows():
-        text = f'{row["Cohort"]}: Median {row["Median OS (months)"]:.1f} mo (95% CI: {row["95% CI Lower"]:.1f}–{row["95% CI Upper"]:.1f})'
+        cohort_short = legend_labels.get(row["Cohort"], row["Cohort"])
+        text = f'{cohort_short}: Median {row["Median OS (months)"]:.1f} mo (95% CI {row["95% CI Lower"]:.1f}–{row["95% CI Upper"]:.1f})'
         ax.text(
-            0.98, y_pos, text,
-            transform=ax.transAxes, fontsize=9,
-            verticalalignment="top", horizontalalignment="right",
+            0.03, y_pos, text,
+            transform=ax.transAxes, fontsize=8.5,
+            verticalalignment="bottom", horizontalalignment="left",
             fontfamily="monospace",
+            bbox=dict(boxstyle="square,pad=0.1", facecolor="white", edgecolor="none", alpha=0.7),
         )
-        y_pos -= 0.05
+        y_pos -= 0.07
 
-    # Number at risk table
+    # ── Number-at-risk table ──────────────────────────────────────────────
     time_points = np.arange(0, ax.get_xlim()[1], 6)
     risk_data = {}
     for grp_name, kmf in sorted(km_results.items()):
         n_at_risk = []
         for t in time_points:
-            nar = (kmf.durations >= t).sum() if hasattr(kmf, "durations") else 0
-            # Better approach: use the survival table
             try:
                 st = kmf.event_table
                 nar = st.loc[st.index <= t, "at_risk"].iloc[-1] if len(st[st.index <= t]) > 0 else 0
             except Exception:
-                pass
+                nar = 0
             n_at_risk.append(int(nar))
         risk_data[grp_name] = n_at_risk
 
-    # Add number-at-risk below the plot
-    ax2 = fig.add_axes([0.125, 0.02, 0.775, 0.08])
     ax2.set_xlim(ax.get_xlim())
-    ax2.set_ylim(-0.5, len(risk_data) - 0.5)
+    ax2.set_ylim(-0.5, n_groups + 0.5)
     ax2.axis("off")
+
+    # "No. at risk" header row (topmost row of the at-risk block)
+    ax2.text(
+        -0.01, n_groups, "No. at risk",
+        fontsize=9, fontweight="bold",
+        ha="right", va="center",
+        transform=ax2.get_yaxis_transform(),
+    )
 
     for idx, (grp_name, counts) in enumerate(sorted(risk_data.items())):
         color = colors.get(grp_name, "gray")
-        ax2.text(-0.5, idx, grp_name, fontsize=9, fontweight="bold",
-                 ha="right", va="center", color=color, transform=ax2.transData)
+        short_label = legend_labels.get(grp_name, grp_name)
+        # Group label in the left margin (figure-level transform keeps it clear of data area)
+        ax2.text(
+            -0.01, idx, short_label,
+            fontsize=8.5, fontweight="bold",
+            ha="right", va="center", color=color,
+            transform=ax2.get_yaxis_transform(),
+        )
         for j, t in enumerate(time_points):
-            ax2.text(t, idx, str(counts[j]), fontsize=8,
-                     ha="center", va="center", color=color)
-
-    ax2.text(-0.5, len(risk_data) - 0.1 + 0.5, "No. at risk", fontsize=9,
-             fontweight="bold", ha="right", va="center")
-
-    plt.subplots_adjust(bottom=0.15)
+            ax2.text(
+                t, idx, str(counts[j]),
+                fontsize=8.5, ha="center", va="center", color=color,
+            )
 
     outpath = OUTPUT_DIR / output_filename
     fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
@@ -446,7 +481,7 @@ def save_methodology(cohort_df: pd.DataFrame, attrition: dict, km_output: dict) 
         f"  - Log-rank p-value: {p_val}",
         "  - Median follow-up estimated using reverse Kaplan-Meier (Schemper & Smith method)",
         "  - Primary Cox proportional hazards model adjusted for age (continuous), race, ECOG (<=1 vs 2+),",
-        "    PD-L1 category (<1%/negative, 1-49%, >=50%, unknown), histology category",
+        "    PD-L1 category (Positive, Negative, Unknown/Not reported), histology category",
         "    (squamous, non-squamous including adenocarcinoma, unknown), and treatment type",
         "    (with or without chemotherapy)",
         "  - Stratified treatment HRs within levels of age group, race, ECOG, PD-L1, histology,",

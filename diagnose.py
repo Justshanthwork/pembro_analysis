@@ -1,5 +1,5 @@
 """
-diagnose.py — Data load diagnostic for labs and medicalcondition tables
+diagnose.py — Data load diagnostics
 Run from pembro_analysis/:
     python diagnose.py
 """
@@ -40,7 +40,6 @@ for table in FOCUS_TABLES:
     print(f"  File exists       : {fpath.exists()}")
 
     if not fpath.exists():
-        # Check for case-insensitive or partial match
         matches = [f for f in all_csvs if table.upper() in f.name.upper()]
         if matches:
             print(f"  Possible matches  : {[f.name for f in matches]}")
@@ -48,10 +47,8 @@ for table in FOCUS_TABLES:
             print(f"  No filename match found in DATA_DIR")
         continue
 
-    # File exists — inspect it
     import pandas as pd
 
-    # Try reading with different encodings
     for enc in ["utf-8", "latin-1", "cp1252"]:
         try:
             df = pd.read_csv(fpath, low_memory=False, encoding=enc, nrows=5)
@@ -65,7 +62,6 @@ for table in FOCUS_TABLES:
         print("  !! Could not read file with any encoding")
         continue
 
-    # Full row count
     try:
         df_full = pd.read_csv(fpath, low_memory=False, encoding=enc)
         print(f"  Row count         : {len(df_full):,}")
