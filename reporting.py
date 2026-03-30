@@ -175,7 +175,7 @@ def plot_km_curves(
     ax.set_ylabel("Overall Survival Probability",  fontsize=10, fontweight="bold")
     ax.set_title(title, fontsize=11, fontweight="bold", pad=12)
     ax.set_ylim(0, 1.05)
-    ax.set_xlim(left=-1)   # -1 creates a small gap so t=0 numbers don't crowd the left edge
+    ax.set_xlim(left=0)
     ax.tick_params(labelsize=9)
     ax.grid(True, alpha=0.25, linestyle="--", linewidth=0.6)
 
@@ -216,6 +216,11 @@ def plot_km_curves(
 
     # ── Number-at-risk table ──────────────────────────────────────────────
     time_points = np.arange(0, ax.get_xlim()[1], 6)
+
+    # Force x-axis ticks to match exactly so numbers align with tick marks
+    ax.set_xticks(time_points)
+    ax.set_xticklabels([str(int(t)) for t in time_points], fontsize=9)
+
     risk_data = {}
     for grp_name, kmf in sorted(km_results.items()):
         n_at_risk = []
@@ -234,7 +239,7 @@ def plot_km_curves(
     ax2.axis("off")
 
     ax2.text(
-        -0.01, n_groups, "No. at risk",
+        -0.06, n_groups, "No. at risk",
         fontsize=9, fontweight="bold",
         ha="right", va="center",
         transform=ax2.get_yaxis_transform(),
@@ -242,10 +247,10 @@ def plot_km_curves(
 
     for idx, (grp_name, counts) in enumerate(sorted(risk_data.items())):
         color     = colors.get(grp_name, "gray")
-        # Two-line label in the margin — matches the legend
+        # Two-line label pushed further left so t=0 numbers have clear space
         margin_label = legend_labels.get(grp_name, grp_name)
         ax2.text(
-            -0.01, idx, margin_label,
+            -0.06, idx, margin_label,
             fontsize=9, fontweight="bold",
             ha="right", va="center", color=color,
             transform=ax2.get_yaxis_transform(),
