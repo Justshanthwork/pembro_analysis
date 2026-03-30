@@ -148,15 +148,17 @@ def plot_km_curves(
     }
 
     # ── Layout ────────────────────────────────────────────────────────────
-    # 7 × 6.5 in — fits a WCLC abstract column comfortably
+    # 9 × 7.5 in — fits a WCLC abstract column comfortably.
+    # Left margin is wide (0.30) to give the two-line at-risk labels
+    # clear space before the t=0 numbers start.
     fig = plt.figure(figsize=(9, 7.5))
 
-    # Main KM axes
-    ax  = fig.add_axes([0.15, 0.32, 0.82, 0.60])
-    # At-risk table: height scales with number of groups
+    # Main KM axes — left=0.30 leaves room for at-risk margin labels
+    ax  = fig.add_axes([0.30, 0.32, 0.67, 0.60])
+    # At-risk table: same left/width as main axes
     n_groups = len(km_results)
     table_h  = min(0.24, 0.10 * n_groups + 0.06)
-    ax2 = fig.add_axes([0.15, 0.04, 0.82, table_h])
+    ax2 = fig.add_axes([0.30, 0.04, 0.67, table_h])
 
     # ── KM curves ─────────────────────────────────────────────────────────
     for grp_name, kmf in sorted(km_results.items()):
@@ -173,7 +175,7 @@ def plot_km_curves(
     ax.set_ylabel("Overall Survival Probability",  fontsize=10, fontweight="bold")
     ax.set_title(title, fontsize=11, fontweight="bold", pad=12)
     ax.set_ylim(0, 1.05)
-    ax.set_xlim(left=0)
+    ax.set_xlim(left=-1)   # -1 creates a small gap so t=0 numbers don't crowd the left edge
     ax.tick_params(labelsize=9)
     ax.grid(True, alpha=0.25, linestyle="--", linewidth=0.6)
 
