@@ -122,14 +122,14 @@ CHEMO_PROXIMITY_EXCLUSION_DAYS = 60  # 2 months
 
 # ── Recommended adjusted model (per collaborator feedback) ────────────────────
 # Covariates: age (continuous), race, ECOG (≤1 vs 2+),
-#             PD-L1 (<1%/Neg, 1-49%, ≥50%, Unknown),
+#             PD-L1 (Positive, Negative, Unknown/Not reported),
 #             histology (Squamous, Non-Squamous, Unknown),
 #             treatment type (with/without chemo)
 COVARIATES_ADJUSTED = [
     "age_at_index",      # continuous
     "race",              # categorical
     "ecog_binary",       # ≤1 vs 2+
-    "pdl1_cat",          # <1%/Negative | 1-49% | ≥50% | Unknown
+    "pdl1_cat",          # Positive | Negative | Unknown / Not reported
     "histology_cat",     # Squamous | Non-Squamous | Unknown
     "pembro_with_chemo", # With Chemo | Without Chemo
 ]
@@ -184,7 +184,7 @@ SUBGROUP_VARIABLES = [
     ("age_group",          ["<65", "65-74", "≥75"]),
     ("race_group",         ["White", "Black", "Asian", "Other / Unknown"]),
     ("ecog_binary",        ["≤1", "2+", "Unknown"]),
-    ("pdl1_cat",           ["<1% / Negative", "1-49%", "≥50%", "Unknown"]),
+    ("pdl1_cat",           ["Positive", "Negative", "Unknown / Not reported"]),
     ("histology_cat",      ["Squamous", "Non-Squamous", "Unknown"]),
     ("pembro_with_chemo",  ["With Chemo", "Without Chemo", "Unknown"]),
 ]
