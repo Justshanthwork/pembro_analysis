@@ -1761,7 +1761,7 @@ def parseEncoding0(charset, file):
 
 def parseEncoding1(charset, file):
     """
-    Format 1: range-based encoding.
+    Format 1: range-based encoding.
     After reading the base ranges, optionally parse the supplement.
     """
     nRanges = readCard8(file)

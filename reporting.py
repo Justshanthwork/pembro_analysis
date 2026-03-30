@@ -114,92 +114,103 @@ def plot_km_curves(
     km_output: dict,
     output_filename: str = "km_os_landmark.png",
     title: str = "Overall Survival from 29-Month Landmark\nFixed-Duration vs Continuation Pembrolizumab",
+    dpi: int = 300,
 ) -> Path:
     """
     Publication-quality KM plot with number-at-risk table.
+    Formatted to IASLC/WCLC abstract figure standards:
+      - Arial font, >=8pt, white background, 300-600 DPI
     """
     ensure_output_dir()
+
+    import matplotlib as mpl
+    # Use Arial (falls back to Helvetica then DejaVu Sans on systems without Arial)
+    mpl.rcParams["font.family"] = "sans-serif"
+    mpl.rcParams["font.sans-serif"] = ["Arial", "Helvetica", "DejaVu Sans"]
 
     km_results = km_output["km_results"]
     lr = km_output["logrank"]
 
-    # Color scheme
     colors = {
-        "Fixed-Duration": "#2166AC",   # blue
-        "Continuation": "#B2182B",     # red
+        "Fixed-Duration": "#2166AC",
+        "Continuation":   "#B2182B",
     }
 
-    # Descriptive legend labels shown on the figure
+    # Two-line labels so neither entry overflows the legend or at-risk margin
     legend_labels = {
-        "Continuation":   "Continued pembrolizumab (>26 months)",
-        "Fixed-Duration": "Fixed-duration pembrolizumab (22-26 months)",
+        "Continuation":   "Continued pembrolizumab\n(>26 months)",
+        "Fixed-Duration": "Fixed-duration pembrolizumab\n(22–26 months)",
+    }
+    # Single-line short form used only in median OS annotation
+    short_labels = {
+        "Continuation":   "Continued pembro (>26 mo)",
+        "Fixed-Duration": "Fixed-duration pembro (22–26 mo)",
     }
 
-    # ── Layout: main plot (top) + at-risk table (bottom) ─────────────────
-    # Use explicit figure + axes positioning so we can size each section
-    # independently and avoid any overlap.
-    fig = plt.figure(figsize=(11, 9))
+    # ── Layout ────────────────────────────────────────────────────────────
+    # 7 × 6.5 in — fits a WCLC abstract column comfortably
+    fig = plt.figure(figsize=(9, 7.5))
 
-    # Main KM axes: left=0.13, bottom=0.30, width=0.84, height=0.63
-    ax = fig.add_axes([0.13, 0.30, 0.84, 0.63])
-
-    # At-risk table axes: immediately below, same left/width, height=0.22
+    # Main KM axes
+    ax  = fig.add_axes([0.15, 0.32, 0.82, 0.60])
+    # At-risk table: height scales with number of groups
     n_groups = len(km_results)
-    ax2 = fig.add_axes([0.13, 0.04, 0.84, min(0.22, 0.09 * n_groups + 0.06)])
+    table_h  = min(0.24, 0.10 * n_groups + 0.06)
+    ax2 = fig.add_axes([0.15, 0.04, 0.82, table_h])
 
-    # ── Plot KM curves with descriptive labels ────────────────────────────
+    # ── KM curves ─────────────────────────────────────────────────────────
     for grp_name, kmf in sorted(km_results.items()):
-        color = colors.get(grp_name, "gray")
-        label = legend_labels.get(grp_name, grp_name)
         kmf.plot_survival_function(
             ax=ax,
             ci_show=True,
-            color=color,
+            color=colors.get(grp_name, "gray"),
             linewidth=2,
             ci_alpha=0.15,
-            label=label,
+            label=legend_labels.get(grp_name, grp_name),
         )
 
-    ax.set_xlabel("Time from Landmark (months)", fontsize=12, fontweight="bold")
-    ax.set_ylabel("Overall Survival Probability", fontsize=12, fontweight="bold")
-    ax.set_title(title, fontsize=13, fontweight="bold", pad=15)
+    ax.set_xlabel("Time from Landmark (months)", fontsize=10, fontweight="bold")
+    ax.set_ylabel("Overall Survival Probability",  fontsize=10, fontweight="bold")
+    ax.set_title(title, fontsize=11, fontweight="bold", pad=12)
     ax.set_ylim(0, 1.05)
     ax.set_xlim(left=0)
-    ax.grid(True, alpha=0.3, linestyle="--")
+    ax.tick_params(labelsize=9)
+    ax.grid(True, alpha=0.25, linestyle="--", linewidth=0.6)
 
-    # Legend: place in upper right to avoid overlapping the lower part of curves;
-    # use bbox_to_anchor to keep it fully inside the axes.
     ax.legend(
-        fontsize=10, loc="upper right",
+        fontsize=9, loc="upper right",
         frameon=True, framealpha=0.9,
         bbox_to_anchor=(1.0, 1.0),
+        handlelength=1.8,
     )
 
-    # ── Log-rank p-value: top-left box ───────────────────────────────────
+    # ── Log-rank p-value ──────────────────────────────────────────────────
     if lr is not None:
-        p_text = f"Log-rank p = {lr.p_value:.4f}" if lr.p_value >= 0.0001 else "Log-rank p < 0.0001"
+        p_text = (f"Log-rank p = {lr.p_value:.4f}"
+                  if lr.p_value >= 0.0001 else "Log-rank p < 0.0001")
         ax.text(
             0.03, 0.08, p_text,
-            transform=ax.transAxes, fontsize=11,
-            verticalalignment="bottom", horizontalalignment="left",
-            bbox=dict(boxstyle="round,pad=0.3", facecolor="white", edgecolor="gray", alpha=0.8),
+            transform=ax.transAxes, fontsize=9,
+            va="bottom", ha="left",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="white",
+                      edgecolor="gray", alpha=0.8),
         )
 
-    # ── Median OS annotations: placed just above the at-risk table header,
-    #    in the lower-left of the main axes so they don't crowd the curves.
+    # ── Median OS annotations ─────────────────────────────────────────────
     summary = km_output["summary"]
-    y_pos = 0.22
+    y_pos = 0.24
     for _, row in summary.iterrows():
-        cohort_short = legend_labels.get(row["Cohort"], row["Cohort"])
-        text = f'{cohort_short}: Median {row["Median OS (months)"]:.1f} mo (95% CI {row["95% CI Lower"]:.1f}–{row["95% CI Upper"]:.1f})'
+        lbl = short_labels.get(row["Cohort"], row["Cohort"])
+        text = (f'{lbl}: median {row["Median OS (months)"]:.1f} mo '
+                f'(95% CI {row["95% CI Lower"]:.1f}–{row["95% CI Upper"]:.1f})')
         ax.text(
             0.03, y_pos, text,
             transform=ax.transAxes, fontsize=8.5,
-            verticalalignment="bottom", horizontalalignment="left",
-            fontfamily="monospace",
-            bbox=dict(boxstyle="square,pad=0.1", facecolor="white", edgecolor="none", alpha=0.7),
+            va="bottom", ha="left",
+            bbox=dict(boxstyle="square,pad=0.1", facecolor="white",
+                      edgecolor="none", alpha=0.7),
         )
-        y_pos -= 0.07
+        y_pos -= 0.08
 
     # ── Number-at-risk table ──────────────────────────────────────────────
     time_points = np.arange(0, ax.get_xlim()[1], 6)
@@ -208,8 +219,9 @@ def plot_km_curves(
         n_at_risk = []
         for t in time_points:
             try:
-                st = kmf.event_table
-                nar = st.loc[st.index <= t, "at_risk"].iloc[-1] if len(st[st.index <= t]) > 0 else 0
+                st  = kmf.event_table
+                nar = (st.loc[st.index <= t, "at_risk"].iloc[-1]
+                       if len(st[st.index <= t]) > 0 else 0)
             except Exception:
                 nar = 0
             n_at_risk.append(int(nar))
@@ -219,7 +231,6 @@ def plot_km_curves(
     ax2.set_ylim(-0.5, n_groups + 0.5)
     ax2.axis("off")
 
-    # "No. at risk" header row (topmost row of the at-risk block)
     ax2.text(
         -0.01, n_groups, "No. at risk",
         fontsize=9, fontweight="bold",
@@ -228,23 +239,24 @@ def plot_km_curves(
     )
 
     for idx, (grp_name, counts) in enumerate(sorted(risk_data.items())):
-        color = colors.get(grp_name, "gray")
-        short_label = legend_labels.get(grp_name, grp_name)
-        # Group label in the left margin (figure-level transform keeps it clear of data area)
+        color     = colors.get(grp_name, "gray")
+        # Two-line label in the margin — matches the legend
+        margin_label = legend_labels.get(grp_name, grp_name)
         ax2.text(
-            -0.01, idx, short_label,
-            fontsize=8.5, fontweight="bold",
+            -0.01, idx, margin_label,
+            fontsize=9, fontweight="bold",
             ha="right", va="center", color=color,
             transform=ax2.get_yaxis_transform(),
+            linespacing=1.3,
         )
         for j, t in enumerate(time_points):
             ax2.text(
                 t, idx, str(counts[j]),
-                fontsize=8.5, ha="center", va="center", color=color,
+                fontsize=9, ha="center", va="center", color=color,
             )
 
     outpath = OUTPUT_DIR / output_filename
-    fig.savefig(outpath, dpi=300, bbox_inches="tight", facecolor="white")
+    fig.savefig(outpath, dpi=dpi, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     print(f"[reporting] KM plot saved to {outpath}")
     return outpath
